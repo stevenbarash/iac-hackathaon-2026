@@ -1,0 +1,14 @@
+.DS_Store
+node_modules/
+*.log
+
+# Local credentials and environment configuration
+Open States API Key.txt
+.env
+.env.*
+!.env.example
+
+# Codex/ChatGPT project context and local workflow artifacts
+AGENTS.md
+sources/
+.superpowers/

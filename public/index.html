@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Find elected officials and understand the status of researched civic evidence.">
+    <title>Know Your Officials</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <a class="skip-link" href="#app">Skip to main content</a>
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="Know Your Officials home">Know Your Officials</a>
+      <p class="demo-banner" role="note"><strong>Pilot data:</strong> live official identity comes from Open States; issue evidence is not researched. Demo mode remains entirely fictional.</p>
+    </header>
+    <p id="status" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p>
+    <main id="app" tabindex="-1">
+      <section class="intro">
+        <h1 tabindex="-1">Know the record. Start with your place.</h1>
+        <p class="lede">Find your elected officials, understand their public roles, and see exactly what issue evidence has—or has not—been researched.</p>
+      </section>
+      <section class="form-panel" aria-labelledby="address-heading">
+        <h2 id="address-heading">Find your officials</h2>
+        <form>
+          <label class="field-label" for="address">Full address</label>
+          <span class="field-hint" id="address-hint">Street, city, state, and 5-digit ZIP are required for a reliable match.</span>
+          <input id="address" name="address" type="text" autocomplete="street-address" required aria-describedby="address-hint">
+          <p class="privacy-copy">Your address is sent securely to the U.S. Census Geocoder and is not stored. Only the resulting coordinates are sent to Open States.</p>
+          <div class="actions">
+            <button class="button" type="submit">Find my officials</button>
+            <button class="button secondary" type="button">Use demo location</button>
+          </div>
+        </form>
+      </section>
+    </main>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

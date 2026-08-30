@@ -1,0 +1,261 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Know Your Officials API",
+    "version": "v1",
+    "description": "A stateless API shared by web and WhatsApp clients. Live mode geocodes an address with the U.S. Census Geocoder, then retrieves current official identity data from Open States. Issue evidence is explicitly unresearched in live mode. Demo mode returns entirely fictional illustrative records. Full addresses are never persisted or echoed in responses."
+  },
+  "servers": [{ "url": "http://localhost:3000" }],
+  "paths": {
+    "/api/health": {
+      "get": {
+        "summary": "Get service health",
+        "responses": {
+          "200": {
+            "description": "Service is available.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Health" } } }
+          },
+          "405": { "$ref": "#/components/responses/MethodNotAllowed" }
+        }
+      }
+    },
+    "/api/v1/officials/lookup": {
+      "post": {
+        "summary": "Resolve elected officials for an address",
+        "description": "Live mode is the default. The address is sent to the U.S. Census Geocoder and is not stored or returned; only resulting coordinates are sent to Open States. Demo mode returns fictional illustrative data.",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LookupRequest" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "Lookup coverage and compact official identity cards.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LookupResponse" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "413": { "$ref": "#/components/responses/PayloadTooLarge" },
+          "422": { "$ref": "#/components/responses/OutsidePilotCoverage" },
+          "503": { "$ref": "#/components/responses/ServiceUnavailable" },
+          "405": { "$ref": "#/components/responses/MethodNotAllowed" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/v1/officials/{officialId}": {
+      "get": {
+        "summary": "Get an official identity profile and evidence status",
+        "parameters": [{
+          "name": "officialId",
+          "in": "path",
+          "required": true,
+          "schema": { "type": "string" },
+          "description": "URL-encoded Open States or illustrative demo official identifier."
+        }],
+        "responses": {
+          "200": {
+            "description": "Official identity, contact fields, issue records, and explicit evidence status.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OfficialProfile" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "404": { "$ref": "#/components/responses/OfficialNotFound" },
+          "503": { "$ref": "#/components/responses/ServiceUnavailable" },
+          "405": { "$ref": "#/components/responses/MethodNotAllowed" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/openapi.json": {
+      "get": {
+        "summary": "Get this OpenAPI contract",
+        "responses": {
+          "200": {
+            "description": "The machine-readable API contract.",
+            "content": { "application/json": { "schema": { "type": "object" } } }
+          },
+          "405": { "$ref": "#/components/responses/MethodNotAllowed" }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Health": {
+        "type": "object",
+        "required": ["status", "apiVersion"],
+        "properties": {
+          "status": { "const": "ok" },
+          "apiVersion": { "const": "v1" }
+        }
+      },
+      "LookupRequest": {
+        "type": "object",
+        "required": ["address"],
+        "properties": {
+          "address": { "type": "string", "minLength": 1, "pattern": ".*\\b\\d{5}(?:-\\d{4})?\\b.*", "description": "In live mode, a 5-digit ZIP is required. The address is sent to the U.S. Census Geocoder, never stored, and never returned." },
+          "mode": { "type": "string", "enum": ["live", "demo"], "default": "live", "description": "Live retrieves current Open States identity data. Demo returns entirely fictional illustrative records." },
+          "topics": { "type": "array", "items": { "$ref": "#/components/schemas/Topic" }, "uniqueItems": true },
+          "locale": { "type": "string", "description": "Optional client locale hint." }
+        }
+      },
+      "LookupResponse": {
+        "type": "object",
+        "required": ["requestId", "coverage", "location", "officials"],
+        "properties": {
+          "requestId": { "type": "string", "format": "uuid" },
+          "coverage": { "$ref": "#/components/schemas/PilotCoverage" },
+          "location": { "$ref": "#/components/schemas/Location" },
+          "officials": { "type": "array", "items": { "$ref": "#/components/schemas/OfficialCard" } }
+        }
+      },
+      "PilotCoverage": {
+        "type": "object",
+        "description": "Explicit source and evidence-coverage semantics.",
+        "required": ["status", "message"],
+        "properties": {
+          "status": { "type": "string", "enum": ["live_identity", "illustrative_pilot"] },
+          "message": { "type": "string", "description": "Distinguishes live identity data with unresearched evidence from fictional demo data." }
+        }
+      },
+      "Location": {
+        "type": "object",
+        "description": "Normalized non-street location only.",
+        "required": ["city", "state", "districts"],
+        "properties": {
+          "city": { "type": "string" },
+          "state": { "type": "string" },
+          "districts": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "OfficialCard": {
+        "type": "object",
+        "required": ["id", "name", "office", "district", "documentedRecordCount"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string", "description": "Illustrative name only." },
+          "office": { "type": "string" },
+          "district": { "type": "string" },
+          "party": { "type": "string" },
+          "imageUrl": { "type": "string" },
+          "documentedRecordCount": { "type": "integer", "minimum": 0 },
+          "dataMode": { "$ref": "#/components/schemas/DataMode" },
+          "evidenceStatus": { "type": "string", "enum": ["not_researched", "illustrative_demo"] }
+        }
+      },
+      "OfficialProfile": {
+        "allOf": [
+          {
+            "type": "object",
+            "required": ["id", "name", "office", "district"],
+            "properties": {
+              "id": { "type": "string" },
+              "name": { "type": "string", "description": "Illustrative name only." },
+              "office": { "type": "string" },
+              "district": { "type": "string" }
+            }
+          },
+          {
+            "type": "object",
+            "required": ["responsibilities", "contact", "issueRecords", "dataMode", "evidenceStatus"],
+            "properties": {
+              "responsibilities": { "type": "array", "items": { "type": "string" } },
+              "contact": { "$ref": "#/components/schemas/Contact" },
+              "issueRecords": { "type": "array", "items": { "$ref": "#/components/schemas/IssueRecord" }, "description": "Empty when live issue evidence has not been researched." },
+              "dataMode": { "$ref": "#/components/schemas/DataMode" },
+              "evidenceStatus": { "$ref": "#/components/schemas/EvidenceStatus" },
+              "sourceAttribution": { "$ref": "#/components/schemas/SourceAttribution" }
+            }
+          }
+        ]
+      },
+      "DataMode": {
+        "type": "string",
+        "enum": ["live_identity", "illustrative_demo"]
+      },
+      "EvidenceStatus": {
+        "type": "object",
+        "required": ["status", "message"],
+        "properties": {
+          "status": { "type": "string", "enum": ["not_researched", "illustrative_demo"] },
+          "message": { "type": "string" }
+        }
+      },
+      "SourceAttribution": {
+        "type": "object",
+        "required": ["name", "url"],
+        "properties": {
+          "name": { "type": "string" },
+          "url": { "type": "string", "format": "uri" },
+          "updatedAt": { "type": "string", "description": "Upstream update timestamp when provided." }
+        }
+      },
+      "Contact": {
+        "type": "object",
+        "required": ["website", "email", "phone", "officeAddress"],
+        "properties": {
+          "website": { "type": "string", "format": "uri" },
+          "email": { "type": "string", "format": "email" },
+          "phone": { "type": "string" },
+          "officeAddress": { "type": "string", "description": "Illustrative official office contact information, not a submitted user address." }
+        }
+      },
+      "IssueRecord": {
+        "type": "object",
+        "description": "Every substantive issue record includes source evidence and verification metadata. All pilot records are illustrative.",
+        "required": ["topic", "position", "finding", "date", "evidenceType", "source", "verification"],
+        "properties": {
+          "topic": { "$ref": "#/components/schemas/Topic" },
+          "position": { "$ref": "#/components/schemas/Position" },
+          "finding": { "type": "string" },
+          "date": { "type": "string", "format": "date" },
+          "evidenceType": { "type": "string" },
+          "source": { "$ref": "#/components/schemas/EvidenceSource" },
+          "verification": { "$ref": "#/components/schemas/Verification" }
+        }
+      },
+      "Topic": { "type": "string", "enum": ["ihra", "bds_policy", "israel_legislation", "antisemitism", "jewish_community"] },
+      "Position": { "type": "string", "enum": ["supports", "opposes", "mixed", "related_action", "no_documented_position"] },
+      "EvidenceSource": {
+        "type": "object",
+        "required": ["title", "url", "publishedAt"],
+        "properties": {
+          "title": { "type": "string" },
+          "url": { "type": "string", "format": "uri" },
+          "publishedAt": { "type": "string", "format": "date" }
+        }
+      },
+      "Verification": {
+        "type": "object",
+        "required": ["status", "verifiedAt", "note"],
+        "properties": {
+          "status": { "const": "demo_only", "description": "Marks an illustrative pilot record rather than a claim about a real official." },
+          "verifiedAt": { "type": "string", "format": "date" },
+          "note": { "type": "string" }
+        }
+      },
+      "ErrorEnvelope": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": ["code", "message"],
+            "properties": {
+              "code": { "type": "string", "description": "Stable shared error code for browser and messaging clients.", "enum": ["INVALID_JSON", "INVALID_REQUEST_BODY", "PAYLOAD_TOO_LARGE", "ADDRESS_REQUIRED", "ADDRESS_NOT_FOUND", "ADDRESS_AMBIGUOUS", "OUTSIDE_PILOT_COVERAGE", "INVALID_TOPIC", "INVALID_LOCALE", "INVALID_LOOKUP_MODE", "INVALID_OFFICIAL_ID", "OFFICIALS_NOT_FOUND", "OFFICIAL_NOT_FOUND", "CONFIGURATION_REQUIRED", "UPSTREAM_SERVICE_UNAVAILABLE", "METHOD_NOT_ALLOWED", "ROUTE_NOT_FOUND", "INTERNAL_ERROR"] },
+              "message": { "type": "string" },
+              "suggestions": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        }
+      }
+    },
+    "responses": {
+      "BadRequest": { "description": "Invalid JSON or invalid request input.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } } },
+      "PayloadTooLarge": { "description": "The JSON request body exceeds 32 KiB.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } } },
+      "OutsidePilotCoverage": { "description": "Address is outside the illustrative Brooklyn pilot coverage.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } } },
+      "OfficialNotFound": { "description": "No illustrative official matches the identifier.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } } },
+      "ServiceUnavailable": { "description": "Live lookup is not configured or an upstream civic-data service is temporarily unavailable.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } } },
+      "MethodNotAllowed": { "description": "Method is not supported for this route. The Allow response header identifies the supported method.", "headers": { "Allow": { "schema": { "type": "string" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } } },
+      "InternalError": { "description": "Unexpected server failure without internal details.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } } }
+    }
+  }
+}
