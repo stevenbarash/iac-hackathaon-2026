@@ -1,6 +1,9 @@
 import { randomUUID } from 'node:crypto';
 
 import { DomainError } from '../domain/officials.js';
+import { createHouseClerkEvidenceService } from './house-clerk-evidence.js';
+import { createOfficialEvidenceService } from './official-evidence.js';
+import { createOpenStatesEvidenceService } from './openstates-evidence.js';
 
 const CENSUS_URL = 'https://geocoding.geo.census.gov/geocoder/locations/onelineaddress';
 const OPEN_STATES_URL = 'https://v3.openstates.org';
@@ -9,6 +12,15 @@ const UPSTREAM_TIMEOUT_MS = 5000;
 const EVIDENCE_STATUS = Object.freeze({
   status: 'not_researched',
   message: 'Israel and Jewish-community issue evidence has not been researched for this live official yet.',
+});
+
+const EVIDENCE_UNAVAILABLE_STATUS = Object.freeze({
+  status: 'temporarily_unavailable',
+  catalogVersion: 'ny-federal-pilot-v1',
+  reviewedMeasureCount: 0,
+  successfulMeasureCount: 0,
+  failedMeasureCount: 0,
+  message: 'Official identity and contact data is available, but issue evidence is temporarily unavailable.',
 });
 
 function configurationError() {
@@ -91,6 +103,22 @@ function completePerson(person) {
   };
 }
 
+function normalizeOtherIdentifiers(otherIdentifiers) {
+  if (!Array.isArray(otherIdentifiers)) return {};
+  const entries = otherIdentifiers
+    .filter((entry) => entry && typeof entry.scheme === 'string' && typeof entry.identifier === 'string')
+    .map((entry) => [entry.scheme.trim().toLowerCase(), entry.identifier.trim()])
+    .filter(([scheme, identifier]) => scheme !== '' && identifier !== '')
+    .sort(([leftScheme, leftIdentifier], [rightScheme, rightIdentifier]) => (
+      leftScheme.localeCompare(rightScheme) || leftIdentifier.localeCompare(rightIdentifier)
+    ));
+  const normalized = {};
+  for (const [scheme, identifier] of entries) {
+    if (!Object.hasOwn(normalized, scheme)) normalized[scheme] = identifier;
+  }
+  return normalized;
+}
+
 async function readJson(response) {
   if (!response.ok) throw upstreamError();
   try {
@@ -104,7 +132,13 @@ export function createLiveOfficialService({
   fetchImpl = fetch,
   apiKey = process.env.OPENSTATES_API_KEY || '',
   timeoutMs = UPSTREAM_TIMEOUT_MS,
+  evidenceService,
 } = {}) {
+  const officialEvidence = evidenceService || createOfficialEvidenceService({
+    openStatesEvidence: createOpenStatesEvidenceService({ fetchImpl, apiKey, timeoutMs }),
+    houseClerkEvidence: createHouseClerkEvidenceService({ fetchImpl, timeoutMs }),
+  });
+
   async function request(url, options = {}) {
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
@@ -183,12 +217,28 @@ export function createLiveOfficialService({
     openStatesUrl.searchParams.set('id', id);
     openStatesUrl.searchParams.append('include', 'links');
     openStatesUrl.searchParams.append('include', 'offices');
+    openStatesUrl.searchParams.append('include', 'other_identifiers');
     const peopleBody = await readJson(await request(openStatesUrl, {
       headers: { 'X-API-KEY': apiKey },
     }));
     const person = peopleBody?.results?.[0];
     if (!person) throw new DomainError('OFFICIAL_NOT_FOUND', 'No live official matches that identifier.', 404);
-    return completePerson(person);
+    const profile = completePerson(person);
+    try {
+      const evidence = await officialEvidence.getEvidenceForOfficial({
+        id: person.id,
+        jurisdictionId: person.jurisdiction?.id || '',
+        roleClassification: person.current_role?.org_classification || '',
+        otherIdentifiers: normalizeOtherIdentifiers(person.other_identifiers),
+      });
+      return { ...profile, ...evidence };
+    } catch {
+      return {
+        ...profile,
+        issueRecords: [],
+        evidenceStatus: { ...EVIDENCE_UNAVAILABLE_STATUS },
+      };
+    }
   }
 
   return { lookup, getOfficial };

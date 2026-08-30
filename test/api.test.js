@@ -42,6 +42,31 @@ test('health returns v1 service status', async () => {
   assert.deepEqual(await response.json(), { status: 'ok', apiVersion: 'v1' });
 });
 
+test('address suggestion endpoint returns provider results without caching the query', async () => {
+  const app = createAppServer({
+    async suggestAddresses(query) {
+      assert.equal(query, '350 Fifth Ave');
+      return { suggestions: [{ id: 'empire-state', label: '350 5th Avenue, New York, NY 10118' }] };
+    },
+  });
+  await new Promise((resolve, reject) => {
+    app.once('error', reject);
+    app.listen(0, '127.0.0.1', resolve);
+  });
+
+  try {
+    const { port } = app.address();
+    const response = await fetch(`http://127.0.0.1:${port}/api/v1/addresses/suggest?q=350%20Fifth%20Ave`);
+    assert.equal(response.status, 200);
+    await assertApiHeaders(response);
+    assert.deepEqual(await response.json(), {
+      suggestions: [{ id: 'empire-state', label: '350 5th Avenue, New York, NY 10118' }],
+    });
+  } finally {
+    await new Promise((resolve, reject) => app.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
 test('Brooklyn lookup returns the domain response without the submitted street', async () => {
   const response = await request('/api/v1/officials/lookup', {
     method: 'POST',

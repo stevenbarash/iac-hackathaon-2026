@@ -1,31 +1,48 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="system" data-textsize="normal">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="Find elected officials and understand the status of researched civic evidence.">
+    <meta name="description" content="Find who represents you, understand their public roles and documented issue records, and take the next step to engage.">
     <title>Know Your Officials</title>
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
     <a class="skip-link" href="#app">Skip to main content</a>
     <header class="site-header">
-      <a class="brand" href="/" aria-label="Know Your Officials home">Know Your Officials</a>
-      <p class="demo-banner" role="note"><strong>Pilot data:</strong> live official identity comes from Open States; issue evidence is not researched. Demo mode remains entirely fictional.</p>
+      <a class="brand" href="/" aria-label="Know Your Officials home"><span class="brand-bullet" aria-hidden="true">K</span><span>Know Your Officials</span></a>
+      <div class="display-controls" aria-label="Display settings">
+        <fieldset class="display-switch" id="textsize-switch">
+          <legend>Text size</legend>
+          <button type="button" data-value="normal" aria-pressed="true" aria-label="Normal text size">A</button>
+          <button type="button" data-value="large" aria-pressed="false" aria-label="Large text size"><span class="text-large">A</span></button>
+          <button type="button" data-value="xlarge" aria-pressed="false" aria-label="Largest text size"><span class="text-xlarge">A</span></button>
+        </fieldset>
+        <fieldset class="display-switch" id="theme-switch">
+          <legend>Color</legend>
+          <button type="button" data-value="system" aria-pressed="true">Auto</button>
+          <button type="button" data-value="light" aria-pressed="false">Light</button>
+          <button type="button" data-value="dark" aria-pressed="false">Dark</button>
+        </fieldset>
+      </div>
     </header>
     <p id="status" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p>
     <main id="app" tabindex="-1">
       <section class="intro">
-        <h1 tabindex="-1">Know the record. Start with your place.</h1>
-        <p class="lede">Find your elected officials, understand their public roles, and see exactly what issue evidence has—or has not—been researched.</p>
+        <h1 tabindex="-1">Know who represents you. Engage with confidence.</h1>
+        <p class="lede">Find your elected officials, understand what their offices do and which issues have documented records, then get clear ways to call or write.</p>
+        <p class="project-context">Built for the IAC Hackathon 2026 “Know Your Officials” challenge—helping community members turn trustworthy civic information into informed action.</p>
       </section>
       <section class="form-panel" aria-labelledby="address-heading">
-        <h2 id="address-heading">Find your officials</h2>
+        <h2 id="address-heading">Start with your address</h2>
         <form>
           <label class="field-label" for="address">Full address</label>
           <span class="field-hint" id="address-hint">Street, city, state, and 5-digit ZIP are required for a reliable match.</span>
-          <input id="address" name="address" type="text" autocomplete="street-address" required aria-describedby="address-hint">
-          <p class="privacy-copy">Your address is sent securely to the U.S. Census Geocoder and is not stored. Only the resulting coordinates are sent to Open States.</p>
+          <div class="address-autocomplete">
+            <input id="address" name="address" type="text" autocomplete="off" required aria-describedby="address-hint" role="combobox" aria-autocomplete="list" aria-controls="address-suggestions" aria-expanded="false">
+            <div id="address-suggestions" class="address-suggestions" role="listbox" aria-label="Address suggestions"></div>
+          </div>
+          <p class="privacy-copy">As you type, address text is sent securely to Photon for suggestions. Your final address is sent to the U.S. Census Geocoder and is not stored. Only the resulting coordinates are sent to Open States.</p>
           <div class="actions">
             <button class="button" type="submit">Find my officials</button>
             <button class="button secondary" type="button">Use demo location</button>
@@ -33,6 +50,16 @@
         </form>
       </section>
     </main>
+    <dialog class="draft-dialog" id="draft-dialog" aria-labelledby="draft-title">
+      <form method="dialog" class="draft-shell">
+        <header class="draft-header">
+          <h2 id="draft-title">Write to this office</h2>
+          <button class="icon-button" value="close" aria-label="Close writing assistant">×</button>
+        </header>
+        <div id="draft-body" class="draft-body"></div>
+      </form>
+    </dialog>
+    <p class="toast" id="toast" role="status" aria-live="polite" hidden></p>
     <script type="module" src="/app.js"></script>
   </body>
 </html>

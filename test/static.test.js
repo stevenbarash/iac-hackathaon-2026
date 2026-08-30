@@ -47,12 +47,18 @@ test('the landing page is an accessible address form', async () => {
   assert.equal(response.status, 200);
   assert.match(response.headers.get('content-type'), /^text\/html; charset=utf-8$/);
   assert.match(body, /Know Your Officials/);
+  assert.match(body, /Know who represents you\. Engage with confidence\./);
+  assert.match(body, /IAC Hackathon 2026/);
+  assert.match(body, /turn trustworthy civic information into informed action/i);
   assert.match(body, /<form\b[^>]*>/i);
   assert.match(body, /<label[^>]*for="address"[^>]*>[^<]*full address/i);
   assert.match(body, /<input[^>]*id="address"[^>]*>/i);
   assert.match(body, /U\.S\. Census Geocoder/i);
   assert.match(body, /coordinates[^<]*Open States/i);
   assert.doesNotMatch(body, /address stays in this browser/i);
+  assert.match(body, /id="textsize-switch"/);
+  assert.match(body, /id="theme-switch"/);
+  assert.match(body, /id="draft-dialog"/);
 });
 
 test('allow-listed styles are served as CSS', async () => {
@@ -60,6 +66,25 @@ test('allow-listed styles are served as CSS', async () => {
 
   assert.equal(response.status, 200);
   assert.match(response.headers.get('content-type'), /^text\/css; charset=utf-8$/);
+});
+
+test('profile actions keep their visible label and touch-friendly spacing', async () => {
+  const response = await request('/styles.css');
+  const body = await response.text();
+  assert.equal(response.status, 200);
+  assert.match(body, /\.row-action\s*\{[^}]*min-width:\s*max-content/);
+  assert.doesNotMatch(body, /\.row-action\s*\{[^}]*color:\s*transparent/);
+  assert.match(body, /\.button\s*\{[^}]*min-height:\s*2\.75rem/);
+  assert.match(body, /@media \(max-width:\s*46rem\)[\s\S]*\.row-action\s*\{[^}]*width:\s*100%/);
+});
+
+test('profile summary content cannot widen its grid track', async () => {
+  const response = await request('/styles.css');
+  const body = await response.text();
+
+  assert.equal(response.status, 200);
+  assert.match(body, /\.profile-summary\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/);
+  assert.match(body, /\.contact-list\s+a\s*\{[^}]*min-width:\s*0[^}]*overflow-wrap:\s*anywhere/);
 });
 
 test('allow-listed client code is served as JavaScript', async () => {
@@ -96,4 +121,15 @@ test('client keeps profile enrichment recoverable', async () => {
   const enrichmentIndex = client.indexOf('Promise.allSettled');
 
   assert.ok(enrichmentIndex >= 0, 'profile enrichment must not fail the lookup as a whole');
+});
+
+test('client includes appearance persistence and local contact drafting', async () => {
+  const client = await readFile(new URL('../public/app.js', import.meta.url), 'utf8');
+
+  assert.match(client, /kyo\.theme\.v1/);
+  assert.match(client, /kyo\.textsize\.v1/);
+  assert.match(client, /function governmentLevel\(/);
+  assert.match(client, /function openDraft\(/);
+  assert.match(client, /navigator\.clipboard\.writeText/);
+  assert.doesNotMatch(client, /fetch\([^\n]*draft/i);
 });

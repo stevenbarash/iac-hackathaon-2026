@@ -7,6 +7,7 @@ import {
 } from './src/domain/officials.js';
 import { HttpError, readJsonBody, sendError, sendJson } from './src/http/respond.js';
 import { createOfficialResolver } from './src/services/official-resolver.js';
+import { createAddressSuggestionService } from './src/services/address-suggestions.js';
 import openApiDocument from './openapi.json' with { type: 'json' };
 
 const METHOD_NOT_ALLOWED = 'METHOD_NOT_ALLOWED';
@@ -48,7 +49,7 @@ function handleError(response, error) {
   sendError(response, 500, 'INTERNAL_ERROR', 'An unexpected server error occurred.');
 }
 
-async function route(request, response, { lookup, getOfficial }) {
+async function route(request, response, { lookup, getOfficial, suggestAddresses }) {
   const rawPathname = request.url.split('?', 1)[0];
   if (/(?:^|\/)(?:(?:\.|%2e){1,2})(?:\/|$)/i.test(rawPathname)) {
     sendError(response, 404, 'ROUTE_NOT_FOUND', 'No route matches this request.');
@@ -73,6 +74,15 @@ async function route(request, response, { lookup, getOfficial }) {
       return;
     }
     sendJson(response, 200, openApiDocument);
+    return;
+  }
+
+  if (pathname === '/api/v1/addresses/suggest') {
+    if (request.method !== 'GET') {
+      sendMethodNotAllowed(response, 'GET');
+      return;
+    }
+    sendJson(response, 200, await suggestAddresses(url.searchParams.get('q') || ''));
     return;
   }
 
@@ -125,8 +135,9 @@ export function createAppServer(options = {}) {
   const resolver = options.resolver || createOfficialResolver();
   const lookup = options.lookup || resolver.lookup;
   const getOfficial = options.getOfficial || resolver.getOfficial;
+  const suggestAddresses = options.suggestAddresses || createAddressSuggestionService();
   return createServer((request, response) => {
-    route(request, response, { lookup, getOfficial }).catch((error) => handleError(response, error));
+    route(request, response, { lookup, getOfficial, suggestAddresses }).catch((error) => handleError(response, error));
   });
 }
 

@@ -4,7 +4,7 @@ Date: 2026-08-30
 
 ## Objective
 
-Extend Know Your Officials so a live official profile can show source-backed legislative actions relevant to the pilot taxonomy. The initial slice covers selected New York measures and one federal House roll call. The same normalized records must serve the browser and WhatsApp clients through the existing API.
+Extend Know Your Officials so a live official profile can show source-backed legislative actions relevant to the pilot taxonomy. The initial slice covers selected New York measures and one federal House roll call. The normalized records are exposed through the existing API and rendered in the browser.
 
 The system reports literal official actions such as sponsorship, cosponsorship, and recorded vote options. It does not automatically turn those actions into a broad ideological score or infer a position from absence.
 
@@ -18,7 +18,7 @@ The system reports literal official actions such as sponsorship, cosponsorship, 
 - Federal representatives returned by Open States.
 - Live House Clerk XML for H.R. 6090, 118th Congress, Roll Call 172.
 - Exact identity joins using Open States OCD person IDs for New York and Bioguide IDs for the House.
-- Evidence cards, explicit research coverage, citations, and WhatsApp-compatible API fields.
+- Evidence cards, explicit research coverage, citations, and documented API fields.
 
 ### Excluded
 
@@ -159,7 +159,7 @@ The live profile service continues to own identity and contact normalization. It
 }
 ```
 
-Sponsorship findings use literal labels such as `Primary sponsor` and `Cosponsor`. State vote findings include the exact motion and option when Open States provides an individual vote. Procedural motions are not rewritten as final-passage votes.
+Sponsorship findings use literal labels such as `Primary sponsor` and `Cosponsor` and omit a date because Open States sponsorship entries do not supply one. State vote findings include the exact motion and option when Open States provides an individual vote, and include a date only when the matched vote event supplies one. A bill's latest-action date is never substituted for either action. Procedural motions are not rewritten as final-passage votes.
 
 ## Evidence coverage
 
@@ -179,9 +179,9 @@ Zero matching actions is a successful researched result when every applicable ma
 - Keep the existing official profile endpoint.
 - Replace live `issueRecords: []` with normalized live evidence records.
 - Extend the OpenAPI schemas for action type, measure, action details, multiple sources, live verification, and coverage.
-- Browser cards display literal action, measure, date, exact motion or sponsorship classification, and official-source links.
+- Browser evidence cards display literal action, measure, an action date when supplied, exact motion or sponsorship classification, and official-source links. Compact official cards use the already-prefetched profile evidence status and count.
 - Topic filters continue to operate on stable topic keys.
-- WhatsApp renders the same literal findings without generating or strengthening conclusions.
+- API consumers receive the same literal findings without generated or strengthened conclusions.
 - Demo profiles remain isolated fictional records and never mix with live evidence.
 
 ## Failure handling

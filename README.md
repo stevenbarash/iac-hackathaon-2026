@@ -1,8 +1,8 @@
 # Know Your Officials
 
-Know Your Officials is a small, stateless civic-information API with a browser interface. Live mode geocodes a U.S. address and returns current federal and state-legislative identities from Open States. The same API is designed for a WhatsApp bot.
+Know Your Officials is a small, stateless civic-information API with a browser interface. Live mode geocodes a U.S. address and returns current federal and state-legislative identities from Open States.
 
-Live mode does **not** yet make political findings: IHRA, BDS, Israel-related legislation, antisemitism, and Jewish-community evidence is returned as `not_researched`. Demo mode remains entirely fictional.
+Live profiles may include literal sponsorship, cosponsorship, and roll-call-vote actions from a configured catalog of official sources. These records report what the source says—including the measure, exact action or motion, an action date when the upstream action supplies one, and source links—and do not infer support, opposition, or an issue score. Sponsorship records do not borrow the bill's latest-action date. The coverage status says whether the applicable catalog was `researched`, `partially_available`, `temporarily_unavailable`, or `not_researched`. Demo mode remains entirely fictional.
 
 ## Run locally
 
@@ -17,9 +17,9 @@ echo
 npm start
 ```
 
-Never put the key in browser code, API requests from clients, source control, URLs, logs, or WhatsApp configuration. The server sends it to Open States using the `X-API-KEY` header.
+Never put the key in browser code, API requests from clients, source control, URLs, or logs. The server sends it to Open States using the `X-API-KEY` header.
 
-The default URL is [http://localhost:3000](http://localhost:3000). Enter a complete U.S. street address for live results or choose **Use demo location** for fictional records. Demo mode works without an Open States key.
+The default URL is [http://localhost:3000](http://localhost:3000). Start typing a U.S. street address and choose a result from the keyboard-accessible dropdown, or finish entering it manually. Choose **Use demo location** for fictional records. Demo mode works without an Open States key.
 
 Run all tests with:
 
@@ -27,13 +27,14 @@ Run all tests with:
 npm test
 ```
 
-The machine-readable contract is available at [http://localhost:3000/api/openapi.json](http://localhost:3000/api/openapi.json). For the WhatsApp integration, see [examples/whatsapp-bot-flow.md](examples/whatsapp-bot-flow.md).
+The machine-readable contract is available at [http://localhost:3000/api/openapi.json](http://localhost:3000/api/openapi.json).
 
 ## API
 
 | Endpoint | Method | Purpose |
 | --- | --- | --- |
 | `/api/health` | `GET` | Service status and API version. |
+| `/api/v1/addresses/suggest` | `GET` | Return U.S. house-address suggestions from Photon. |
 | `/api/v1/officials/lookup` | `POST` | Resolve live or demo official cards from an address. |
 | `/api/v1/officials/{officialId}` | `GET` | Retrieve identity, contacts, source attribution, and evidence status. |
 | `/api/openapi.json` | `GET` | Return the OpenAPI 3.1 contract. |
@@ -51,7 +52,7 @@ curl -sS http://localhost:3000/api/v1/officials/lookup \
   --data '{"address":"350 Fifth Avenue, New York, NY 10118","topics":["ihra"],"locale":"en-US"}'
 ```
 
-The response contains non-street location data and compact cards. A live card has `dataMode: "live_identity"`, `evidenceStatus: "not_researched"`, and `documentedRecordCount: 0`. Use its URL-encoded ID to retrieve the profile.
+The response contains non-street location data and compact cards. The lookup response itself retains `evidenceStatus: "not_researched"` with `documentedRecordCount: 0` because official-source evidence is fetched only from the profile endpoint. The browser prefetches those profiles and uses their current evidence status and record count on its compact cards. Other consumers can use a card's URL-encoded ID to retrieve the same profile. Live profile records use `actionType`, `measure`, `action`, `sources`, and `verification.status: "live_official_source"`. Consumers must present those fields literally and must not convert a vote or sponsorship into `supports`, `opposes`, or a score.
 
 Fictional demo request:
 
@@ -84,10 +85,10 @@ All API errors use one envelope:
 
 ## Privacy and integration boundary
 
-In live mode, the server sends the submitted address to the U.S. Census Geocoder. It does not persist the address or echo it in a response. It sends only the resulting latitude and longitude to Open States. In demo mode, the input is matched locally and is not sent upstream.
+While the user types, the server sends the current address text to Photon's public OpenStreetMap-based service to retrieve dropdown suggestions. This service does not persist the query. In live mode, the server sends the final submitted address to the U.S. Census Geocoder. It does not persist the address or echo it in a response. It sends only the resulting latitude and longitude to Open States. In demo mode, the input is matched locally and is not sent upstream.
 
-The WhatsApp bot owns phone numbers, Meta credentials, channel identity, consent, and conversation state. This API owns only civic evidence and illustrative official profiles. Do not send those bot-owned values to this service.
+The API owns civic evidence and illustrative official profiles only. Client-specific identity, consent, and session state do not belong in this service.
 
 ## Current coverage boundary
 
-Open States supplies U.S. Congress and state-legislative identities for a coordinate. This integration does not claim to resolve governors, mayors, county officials, or every local office. Political issue evidence is a separate curated-data layer and is intentionally empty until researched and source-verified.
+Open States supplies U.S. Congress and state-legislative identities for a coordinate. This integration does not claim to resolve governors, mayors, county officials, or every local office. Evidence coverage applies only to the configured measure catalog: an empty researched result means no matching action was found in that catalog, not opposition or neutrality. Partial or unavailable coverage is reported explicitly.

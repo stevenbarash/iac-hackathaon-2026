@@ -32,7 +32,7 @@
 - Modify `src/services/live-officials.js`: request other identifiers and enrich the live profile.
 - Modify `public/app.js`: render live action metadata and multiple official sources.
 - Modify `openapi.json`: document live evidence and coverage shapes.
-- Modify `examples/whatsapp-bot-flow.md` and `README.md`: document literal-action rendering and live source behavior.
+- Modify `README.md`: document literal-action rendering and live source behavior.
 - Create `test/issue-legislation.test.js`, `test/openstates-evidence.test.js`, `test/house-clerk-evidence.test.js`, `test/official-evidence.test.js`.
 - Modify `test/live-officials.test.js`, `test/client.test.js`, and `test/contract.test.js`.
 
@@ -129,7 +129,7 @@ include=sponsorships&include=votes&include=actions&include=sources
 X-API-KEY: server key
 ```
 
-Use bounded timeout and one transient retry. Normalize only exact nested IDs. Derive `finding` from live fields, for example `Cosponsor of {live identifier}: {live title}.` or `Voted {option} on {motion}.` Use the live upstream date and sources. Set `position: "related_action"`, `verification.status: "live_official_source"`, and inject `now()` only for `retrievedAt`.
+Use bounded timeout and one transient retry. Normalize only exact nested IDs. Derive `finding` from live fields, for example `Cosponsor of {live identifier}: {live title}.` or `Voted {option} on {motion}.` Use an action date only when that matched action supplies one, prefer a vote's own official sources, and never emit an uncited action. Set `position: "related_action"`, `verification.status: "live_official_source"`, and inject `now()` only for `retrievedAt`.
 
 - [ ] **Step 4: Run focused tests**
 
@@ -232,12 +232,11 @@ Inspect a normalized profile and confirm every action field traces to an adapter
 
 ---
 
-### Task 5: API, browser, and WhatsApp contract
+### Task 5: API and browser contract
 
 **Files:**
 - Modify: `public/app.js`
 - Modify: `openapi.json`
-- Modify: `examples/whatsapp-bot-flow.md`
 - Modify: `README.md`
 - Modify: `test/client.test.js`
 - Modify: `test/contract.test.js`
@@ -258,7 +257,7 @@ Expected: FAIL because the live action schema and multi-source rendering are abs
 
 - [ ] **Step 3: Implement rendering and schemas**
 
-Render `record.sources` when present and fall back to the demo record's singular `source`. For live records, display the literal finding and action metadata; omit the demo-only verification sentence. Update OpenAPI with `ActionType`, `Measure`, `LegislativeAction`, `LiveVerification`, and expanded `EvidenceStatus` schemas while preserving demo compatibility. Update WhatsApp documentation to copy literal actions and coverage without inference.
+Render `record.sources` when present and fall back to the demo record's singular `source`. For live records, display the literal finding and action metadata; omit the demo-only verification sentence. Update OpenAPI with `ActionType`, `Measure`, `LegislativeAction`, `LiveVerification`, and expanded `EvidenceStatus` schemas while preserving demo compatibility. Update the README with literal-action and coverage behavior for API consumers.
 
 - [ ] **Step 4: Run focused tests**
 

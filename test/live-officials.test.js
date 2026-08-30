@@ -42,6 +42,10 @@ const OPEN_STATES_PERSON = {
   openstates_url: 'https://openstates.org/person/taylor-example/',
   links: [{ url: 'https://assembly.example.gov/taylor', note: 'homepage' }],
   sources: [{ url: 'https://assembly.example.gov/taylor', note: '' }],
+  other_identifiers: [
+    { scheme: 'BIOGUIDE', identifier: 'G000599' },
+    { scheme: 'Lis', identifier: 'S000001' },
+  ],
   offices: [{
     name: 'District Office',
     fax: '',
@@ -109,28 +113,80 @@ test('live lookup geocodes once, authenticates Open States by header, and return
   assert.equal(JSON.stringify(result).includes('123 Test Street'), false);
 });
 
-test('live profile normalizes Open States contact data and explicitly marks evidence unresearched', async () => {
+test('live profile normalizes identifiers and enriches contact data with injected evidence', async () => {
   const { fetchImpl, requests } = createFetch();
-  const service = createLiveOfficialService({ fetchImpl, apiKey: 'test-key' });
+  const evidenceInputs = [];
+  const evidenceRecord = {
+    topic: 'ihra',
+    position: 'related_action',
+    actionType: 'roll_call_vote',
+    finding: 'Live adapter finding.',
+    date: '2024-05-01',
+    measure: { jurisdiction: 'United States', session: '118', identifier: 'H R 6090', title: 'Fixture' },
+    action: { option: 'Yea', motion: 'On Passage', result: 'Passed' },
+    sources: [{ publisher: 'Official source', url: 'https://example.gov/record' }],
+    verification: { status: 'live_official_source', matchMethod: 'bioguide_id', retrievedAt: '2026-08-30T12:00:00.000Z' },
+  };
+  const evidenceService = {
+    async getEvidenceForOfficial(input) {
+      evidenceInputs.push(input);
+      return {
+        issueRecords: [evidenceRecord],
+        evidenceStatus: {
+          status: 'researched',
+          catalogVersion: 'ny-federal-pilot-v1',
+          reviewedMeasureCount: 1,
+          successfulMeasureCount: 1,
+          failedMeasureCount: 0,
+          message: 'The applicable catalog measure was researched.',
+        },
+      };
+    },
+  };
+  const service = createLiveOfficialService({ fetchImpl, apiKey: 'test-key', evidenceService });
 
   const profile = await service.getOfficial(OPEN_STATES_PERSON.id);
 
   const requestUrl = new URL(requests[0].url);
   assert.equal(requestUrl.pathname, '/people');
   assert.equal(requestUrl.searchParams.get('id'), OPEN_STATES_PERSON.id);
-  assert.deepEqual(requestUrl.searchParams.getAll('include'), ['links', 'offices']);
+  assert.deepEqual(requestUrl.searchParams.getAll('include'), ['links', 'offices', 'other_identifiers']);
   assert.equal(profile.id, OPEN_STATES_PERSON.id);
   assert.equal(profile.contact.website, 'https://assembly.example.gov/taylor');
   assert.equal(profile.contact.email, 'taylor@example.net');
   assert.equal(profile.contact.phone, '718-555-0199');
   assert.equal(profile.contact.officeAddress, '1 District Plaza; Brooklyn NY; 11201');
-  assert.deepEqual(profile.issueRecords, []);
-  assert.deepEqual(profile.evidenceStatus, {
-    status: 'not_researched',
-    message: 'Israel and Jewish-community issue evidence has not been researched for this live official yet.',
-  });
+  assert.deepEqual(evidenceInputs, [{
+    id: OPEN_STATES_PERSON.id,
+    jurisdictionId: 'ocd-jurisdiction/country:us/state:ny/government',
+    roleClassification: 'lower',
+    otherIdentifiers: { bioguide: 'G000599', lis: 'S000001' },
+  }]);
+  assert.deepEqual(profile.issueRecords, [evidenceRecord]);
+  assert.equal(profile.evidenceStatus.status, 'researched');
   assert.equal(profile.dataMode, 'live_identity');
   assert.equal(profile.sourceAttribution.url, 'https://openstates.org/person/taylor-example/');
+});
+
+test('live profile preserves identity and contact when evidence enrichment throws', async () => {
+  const { fetchImpl } = createFetch();
+  const service = createLiveOfficialService({
+    fetchImpl,
+    apiKey: 'test-key',
+    evidenceService: {
+      async getEvidenceForOfficial() {
+        throw new Error('evidence service unavailable');
+      },
+    },
+  });
+
+  const profile = await service.getOfficial(OPEN_STATES_PERSON.id);
+
+  assert.equal(profile.id, OPEN_STATES_PERSON.id);
+  assert.equal(profile.name, OPEN_STATES_PERSON.name);
+  assert.equal(profile.contact.phone, '718-555-0199');
+  assert.deepEqual(profile.issueRecords, []);
+  assert.equal(profile.evidenceStatus.status, 'temporarily_unavailable');
 });
 
 test('missing key fails before transmitting an address', async () => {

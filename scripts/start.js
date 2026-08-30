@@ -1,7 +1,7 @@
 import { loadOpenStatesApiKey } from '../src/config/openstates-key.js';
 
 const apiKey = await loadOpenStatesApiKey();
-if (apiKey && !process.env.OPENSTATES_API_KEY) process.env.OPENSTATES_API_KEY = apiKey;
+if (apiKey) process.env.OPENSTATES_API_KEY = apiKey;
 
 const { createAppServer } = await import('../server.js');
 const port = Number(process.env.PORT) || 3000;

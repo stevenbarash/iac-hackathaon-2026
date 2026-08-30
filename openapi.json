@@ -3,7 +3,7 @@
   "info": {
     "title": "Know Your Officials API",
     "version": "v1",
-    "description": "A stateless API shared by web and WhatsApp clients. Live mode geocodes an address with the U.S. Census Geocoder, then retrieves current official identity data from Open States. Issue evidence is explicitly unresearched in live mode. Demo mode returns entirely fictional illustrative records. Full addresses are never persisted or echoed in responses."
+    "description": "A stateless civic-information API with a browser client. Live mode geocodes an address with the U.S. Census Geocoder, retrieves current official identity data from Open States, and returns literal actions from the configured official-source measure catalog when available. Coverage status distinguishes researched, partial, unavailable, and not-yet-researched evidence. Demo mode returns entirely fictional illustrative records. Full addresses are never persisted or echoed in responses."
   },
   "servers": [{ "url": "http://localhost:3000" }],
   "paths": {
@@ -33,9 +33,30 @@
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LookupResponse" } } }
           },
           "400": { "$ref": "#/components/responses/BadRequest" },
+          "404": { "$ref": "#/components/responses/NotFound" },
           "413": { "$ref": "#/components/responses/PayloadTooLarge" },
           "422": { "$ref": "#/components/responses/OutsidePilotCoverage" },
           "503": { "$ref": "#/components/responses/ServiceUnavailable" },
+          "405": { "$ref": "#/components/responses/MethodNotAllowed" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/v1/addresses/suggest": {
+      "get": {
+        "summary": "Suggest U.S. street addresses",
+        "description": "Proxies a short-lived search-as-you-type request to Photon. Query text is not stored by this service. Final official lookup still uses the U.S. Census Geocoder.",
+        "parameters": [{
+          "name": "q",
+          "in": "query",
+          "required": true,
+          "schema": { "type": "string", "minLength": 5, "maxLength": 100 }
+        }],
+        "responses": {
+          "200": {
+            "description": "Up to five unique U.S. house-address suggestions.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AddressSuggestions" } } }
+          },
           "405": { "$ref": "#/components/responses/MethodNotAllowed" },
           "500": { "$ref": "#/components/responses/InternalError" }
         }
@@ -87,6 +108,24 @@
           "apiVersion": { "const": "v1" }
         }
       },
+      "AddressSuggestions": {
+        "type": "object",
+        "required": ["suggestions"],
+        "properties": {
+          "suggestions": {
+            "type": "array",
+            "maxItems": 5,
+            "items": {
+              "type": "object",
+              "required": ["id", "label"],
+              "properties": {
+                "id": { "type": "string" },
+                "label": { "type": "string" }
+              }
+            }
+          }
+        }
+      },
       "LookupRequest": {
         "type": "object",
         "required": ["address"],
@@ -131,7 +170,7 @@
         "required": ["id", "name", "office", "district", "documentedRecordCount"],
         "properties": {
           "id": { "type": "string" },
-          "name": { "type": "string", "description": "Illustrative name only." },
+          "name": { "type": "string", "description": "Current or illustrative official name." },
           "office": { "type": "string" },
           "district": { "type": "string" },
           "party": { "type": "string" },
@@ -148,9 +187,11 @@
             "required": ["id", "name", "office", "district"],
             "properties": {
               "id": { "type": "string" },
-              "name": { "type": "string", "description": "Illustrative name only." },
+              "name": { "type": "string", "description": "Current or illustrative official name." },
               "office": { "type": "string" },
-              "district": { "type": "string" }
+              "district": { "type": "string" },
+              "party": { "type": "string" },
+              "imageUrl": { "type": "string" }
             }
           },
           {
@@ -175,8 +216,12 @@
         "type": "object",
         "required": ["status", "message"],
         "properties": {
-          "status": { "type": "string", "enum": ["not_researched", "illustrative_demo"] },
-          "message": { "type": "string" }
+          "status": { "type": "string", "enum": ["not_researched", "researched", "partially_available", "temporarily_unavailable", "illustrative_demo"] },
+          "message": { "type": "string" },
+          "catalogVersion": { "type": "string" },
+          "reviewedMeasureCount": { "type": "integer", "minimum": 0 },
+          "successfulMeasureCount": { "type": "integer", "minimum": 0 },
+          "failedMeasureCount": { "type": "integer", "minimum": 0 }
         }
       },
       "SourceAttribution": {
@@ -192,16 +237,16 @@
         "type": "object",
         "required": ["website", "email", "phone", "officeAddress"],
         "properties": {
-          "website": { "type": "string", "format": "uri" },
-          "email": { "type": "string", "format": "email" },
+          "website": { "anyOf": [{ "const": "" }, { "type": "string", "format": "uri" }] },
+          "email": { "anyOf": [{ "const": "" }, { "type": "string", "format": "email" }] },
           "phone": { "type": "string" },
           "officeAddress": { "type": "string", "description": "Illustrative official office contact information, not a submitted user address." }
         }
       },
       "IssueRecord": {
         "type": "object",
-        "description": "Every substantive issue record includes source evidence and verification metadata. All pilot records are illustrative.",
-        "required": ["topic", "position", "finding", "date", "evidenceType", "source", "verification"],
+        "description": "A literal official-source action or a fictional illustrative demo record. Live actions do not imply support, opposition, or an issue score.",
+        "required": ["topic", "finding", "verification"],
         "properties": {
           "topic": { "$ref": "#/components/schemas/Topic" },
           "position": { "$ref": "#/components/schemas/Position" },
@@ -209,18 +254,80 @@
           "date": { "type": "string", "format": "date" },
           "evidenceType": { "type": "string" },
           "source": { "$ref": "#/components/schemas/EvidenceSource" },
-          "verification": { "$ref": "#/components/schemas/Verification" }
-        }
+          "actionType": { "$ref": "#/components/schemas/ActionType" },
+          "measure": { "$ref": "#/components/schemas/Measure" },
+          "action": { "$ref": "#/components/schemas/LegislativeAction" },
+          "sources": { "type": "array", "items": { "$ref": "#/components/schemas/EvidenceSource" } },
+          "verification": {
+            "oneOf": [
+              { "$ref": "#/components/schemas/Verification" },
+              { "$ref": "#/components/schemas/LiveVerification" }
+            ]
+          }
+        },
+        "oneOf": [
+          {
+            "title": "Illustrative demo record",
+            "required": ["position", "date", "evidenceType", "source"],
+            "properties": {
+              "verification": { "$ref": "#/components/schemas/Verification" }
+            }
+          },
+          {
+            "title": "Live official-source record",
+            "required": ["position", "actionType", "measure", "action", "sources"],
+            "properties": {
+              "sources": {
+                "type": "array",
+                "minItems": 1,
+                "items": { "$ref": "#/components/schemas/LiveEvidenceSource" }
+              },
+              "verification": { "$ref": "#/components/schemas/LiveVerification" }
+            }
+          }
+        ]
       },
       "Topic": { "type": "string", "enum": ["ihra", "bds_policy", "israel_legislation", "antisemitism", "jewish_community"] },
       "Position": { "type": "string", "enum": ["supports", "opposes", "mixed", "related_action", "no_documented_position"] },
+      "ActionType": {
+        "type": "string",
+        "enum": ["sponsorship", "cosponsorship", "roll_call_vote"]
+      },
+      "Measure": {
+        "type": "object",
+        "required": ["jurisdiction", "session", "identifier", "title"],
+        "properties": {
+          "jurisdiction": { "type": "string" },
+          "session": { "type": "string" },
+          "identifier": { "type": "string" },
+          "title": { "type": "string" }
+        }
+      },
+      "LegislativeAction": {
+        "type": "object",
+        "properties": {
+          "classification": { "type": "string" },
+          "option": { "type": "string" },
+          "motion": { "type": "string" },
+          "result": { "type": "string" }
+        }
+      },
       "EvidenceSource": {
         "type": "object",
-        "required": ["title", "url", "publishedAt"],
+        "required": ["url"],
         "properties": {
           "title": { "type": "string" },
+          "publisher": { "type": "string" },
           "url": { "type": "string", "format": "uri" },
           "publishedAt": { "type": "string", "format": "date" }
+        }
+      },
+      "LiveEvidenceSource": {
+        "type": "object",
+        "required": ["publisher", "url"],
+        "properties": {
+          "publisher": { "type": "string", "minLength": 1 },
+          "url": { "type": "string", "format": "uri", "pattern": "^https?://" }
         }
       },
       "Verification": {
@@ -232,6 +339,15 @@
           "note": { "type": "string" }
         }
       },
+      "LiveVerification": {
+        "type": "object",
+        "required": ["status", "matchMethod", "retrievedAt"],
+        "properties": {
+          "status": { "const": "live_official_source" },
+          "matchMethod": { "type": "string", "enum": ["ocd_person_id", "bioguide_id"] },
+          "retrievedAt": { "type": "string", "format": "date-time" }
+        }
+      },
       "ErrorEnvelope": {
         "type": "object",
         "required": ["error"],
@@ -240,7 +356,7 @@
             "type": "object",
             "required": ["code", "message"],
             "properties": {
-              "code": { "type": "string", "description": "Stable shared error code for browser and messaging clients.", "enum": ["INVALID_JSON", "INVALID_REQUEST_BODY", "PAYLOAD_TOO_LARGE", "ADDRESS_REQUIRED", "ADDRESS_NOT_FOUND", "ADDRESS_AMBIGUOUS", "OUTSIDE_PILOT_COVERAGE", "INVALID_TOPIC", "INVALID_LOCALE", "INVALID_LOOKUP_MODE", "INVALID_OFFICIAL_ID", "OFFICIALS_NOT_FOUND", "OFFICIAL_NOT_FOUND", "CONFIGURATION_REQUIRED", "UPSTREAM_SERVICE_UNAVAILABLE", "METHOD_NOT_ALLOWED", "ROUTE_NOT_FOUND", "INTERNAL_ERROR"] },
+              "code": { "type": "string", "description": "Stable shared error code for API consumers.", "enum": ["INVALID_JSON", "INVALID_REQUEST_BODY", "PAYLOAD_TOO_LARGE", "ADDRESS_REQUIRED", "ADDRESS_NOT_FOUND", "ADDRESS_AMBIGUOUS", "OUTSIDE_PILOT_COVERAGE", "INVALID_TOPIC", "INVALID_LOCALE", "INVALID_LOOKUP_MODE", "INVALID_OFFICIAL_ID", "OFFICIALS_NOT_FOUND", "OFFICIAL_NOT_FOUND", "CONFIGURATION_REQUIRED", "UPSTREAM_SERVICE_UNAVAILABLE", "METHOD_NOT_ALLOWED", "ROUTE_NOT_FOUND", "INTERNAL_ERROR"] },
               "message": { "type": "string" },
               "suggestions": { "type": "array", "items": { "type": "string" } }
             }
@@ -250,6 +366,7 @@
     },
     "responses": {
       "BadRequest": { "description": "Invalid JSON or invalid request input.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } } },
+      "NotFound": { "description": "The address or officials could not be found.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } } },
       "PayloadTooLarge": { "description": "The JSON request body exceeds 32 KiB.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } } },
       "OutsidePilotCoverage": { "description": "Address is outside the illustrative Brooklyn pilot coverage.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } } },
       "OfficialNotFound": { "description": "No illustrative official matches the identifier.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } } },

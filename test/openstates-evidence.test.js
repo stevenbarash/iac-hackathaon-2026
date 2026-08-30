@@ -27,6 +27,8 @@ const MEASURES = Object.freeze([
   }),
 ]);
 
+const ONE_MEASURE = Object.freeze([MEASURES[0]]);
+
 const LIVE_BILL = Object.freeze({
   id: 'ocd-bill/4f19afc8-c6e1-4f7e-9df6-a88bd5616757',
   identifier: 'J 2143',
@@ -111,6 +113,14 @@ const LIVE_BILL = Object.freeze({
   openstates_url: 'https://openstates.org/ny/bills/2025-2026/J2143/',
 });
 
+function liveBillFor(identifier, overrides = {}) {
+  return {
+    ...structuredClone(LIVE_BILL),
+    identifier,
+    ...overrides,
+  };
+}
+
 function jsonResponse(body, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -149,7 +159,7 @@ test('normalizes an exact OCD cosponsorship from live bill fields', async () => 
 
   assert.equal(cosponsorship.position, 'related_action');
   assert.equal(cosponsorship.finding, 'Cosponsor of J 2143: Live upstream title.');
-  assert.equal(cosponsorship.date, '2026-04-18');
+  assert.equal(Object.hasOwn(cosponsorship, 'date'), false);
   assert.deepEqual(cosponsorship.measure, {
     jurisdiction: 'New York',
     session: '2025-2026',
@@ -186,7 +196,65 @@ test('does not treat a raw sponsor name as an identity match', async () => {
   rawNameOnlyBill.votes = [];
   const { fetchImpl } = createFetch({
     J2143: jsonResponse(rawNameOnlyBill),
-    S7034: jsonResponse(rawNameOnlyBill),
+    S7034: jsonResponse(liveBillFor('S 7034', {
+      sponsorships: rawNameOnlyBill.sponsorships,
+      votes: [],
+    })),
+  });
+  const service = createOpenStatesEvidenceService({
+    fetchImpl,
+    apiKey: 'test-key',
+    measures: MEASURES,
+    now: () => FIXED_RETRIEVED_AT,
+  });
+
+  const result = await service.getEvidenceForOfficial({ id: OFFICIAL_ID });
+
+  assert.deepEqual(result.records, []);
+  assert.deepEqual(result, {
+    records: [],
+    reviewedMeasureCount: 2,
+    successfulMeasureCount: 2,
+    failedMeasureCount: 0,
+  });
+});
+
+test('does not fetch or emit evidence when the requested OCD person ID is absent', async () => {
+  const { fetchImpl, requests } = createFetch({});
+  const service = createOpenStatesEvidenceService({
+    fetchImpl,
+    apiKey: 'test-key',
+    measures: MEASURES,
+    now: () => FIXED_RETRIEVED_AT,
+  });
+
+  const result = await service.getEvidenceForOfficial();
+
+  assert.deepEqual(result, {
+    records: [],
+    reviewedMeasureCount: 0,
+    successfulMeasureCount: 0,
+    failedMeasureCount: 0,
+  });
+  assert.equal(requests.length, 0);
+});
+
+test('does not emit evidence when nested sponsor and voter OCD IDs are absent', async () => {
+  const missingIdsBill = structuredClone(LIVE_BILL);
+  missingIdsBill.sponsorships = [{
+    ...LIVE_BILL.sponsorships[1],
+    person: { name: 'Fixture Official' },
+  }];
+  missingIdsBill.votes = [{
+    ...LIVE_BILL.votes[0],
+    votes: [{ option: 'yes', voter: { name: 'Fixture Official' } }],
+  }];
+  const { fetchImpl } = createFetch({
+    J2143: jsonResponse(missingIdsBill),
+    S7034: jsonResponse(liveBillFor('S 7034', {
+      sponsorships: missingIdsBill.sponsorships,
+      votes: missingIdsBill.votes,
+    })),
   });
   const service = createOpenStatesEvidenceService({
     fetchImpl,
@@ -229,6 +297,141 @@ test('preserves literal vote option, motion, and result for an exact nested vote
     result: 'Adopted',
   });
   assert.equal(vote.verification.matchMethod, 'ocd_person_id');
+});
+
+test('treats empty and mismatched 2xx bill payloads as failed measure coverage', async () => {
+  const cases = [
+    ['empty object', {}],
+    ['missing bill ID', liveBillFor('J 2143', { id: '' })],
+    ['missing live title', liveBillFor('J 2143', { title: '' })],
+    ['different identifier', liveBillFor('J 21430')],
+    ['different session', liveBillFor('J 2143', { session: '2023-2024' })],
+    ['different jurisdiction', liveBillFor('J 2143', {
+      jurisdiction: {
+        id: 'ocd-jurisdiction/country:us/state:ca/government',
+        name: 'California',
+        classification: 'state',
+      },
+    })],
+  ];
+
+  for (const [label, body] of cases) {
+    const { fetchImpl } = createFetch({ J2143: jsonResponse(body) });
+    const service = createOpenStatesEvidenceService({
+      fetchImpl,
+      apiKey: 'test-key',
+      measures: ONE_MEASURE,
+      now: () => FIXED_RETRIEVED_AT,
+    });
+
+    const result = await service.getEvidenceForOfficial({ id: OFFICIAL_ID });
+
+    assert.deepEqual(result, {
+      records: [],
+      reviewedMeasureCount: 1,
+      successfulMeasureCount: 0,
+      failedMeasureCount: 1,
+    }, label);
+  }
+});
+
+test('accepts only safely canonical-equivalent bill identifier punctuation', async () => {
+  const { fetchImpl } = createFetch({
+    J2143: jsonResponse(liveBillFor('J. 2,143')),
+  });
+  const service = createOpenStatesEvidenceService({
+    fetchImpl,
+    apiKey: 'test-key',
+    measures: ONE_MEASURE,
+    now: () => FIXED_RETRIEVED_AT,
+  });
+
+  const result = await service.getEvidenceForOfficial({ id: OFFICIAL_ID });
+
+  assert.equal(result.successfulMeasureCount, 1);
+  assert.ok(result.records.length > 0);
+  assert.ok(result.records.every((record) => record.measure.identifier === 'J. 2,143'));
+});
+
+test('requires every requested Open States include expansion to be an array', async () => {
+  for (const field of ['sponsorships', 'votes', 'actions', 'sources']) {
+    const { fetchImpl } = createFetch({
+      J2143: jsonResponse(liveBillFor('J 2143', { [field]: undefined })),
+    });
+    const service = createOpenStatesEvidenceService({
+      fetchImpl,
+      apiKey: 'test-key',
+      measures: ONE_MEASURE,
+      now: () => FIXED_RETRIEVED_AT,
+    });
+
+    const result = await service.getEvidenceForOfficial({ id: OFFICIAL_ID });
+
+    assert.equal(result.successfulMeasureCount, 0, field);
+    assert.equal(result.failedMeasureCount, 1, field);
+    assert.deepEqual(result.records, [], field);
+  }
+});
+
+test('fails measure coverage instead of emitting a matched action without an official source', async () => {
+  const { fetchImpl } = createFetch({
+    J2143: jsonResponse(liveBillFor('J 2143', { sources: [] })),
+  });
+  const service = createOpenStatesEvidenceService({
+    fetchImpl,
+    apiKey: 'test-key',
+    measures: ONE_MEASURE,
+    now: () => FIXED_RETRIEVED_AT,
+  });
+
+  const result = await service.getEvidenceForOfficial({ id: OFFICIAL_ID });
+
+  assert.deepEqual(result, {
+    records: [],
+    reviewedMeasureCount: 1,
+    successfulMeasureCount: 0,
+    failedMeasureCount: 1,
+  });
+});
+
+test('prefers an official vote source over the bill-level source', async () => {
+  const bill = liveBillFor('J 2143');
+  bill.votes[0].sources = [{
+    url: 'https://legislation.example/votes/41',
+    note: 'New York Legislature roll call',
+  }];
+  const { fetchImpl } = createFetch({ J2143: jsonResponse(bill) });
+  const service = createOpenStatesEvidenceService({
+    fetchImpl,
+    apiKey: 'test-key',
+    measures: ONE_MEASURE,
+    now: () => FIXED_RETRIEVED_AT,
+  });
+
+  const result = await service.getEvidenceForOfficial({ id: OFFICIAL_ID });
+  const vote = result.records.find((record) => record.actionType === 'roll_call_vote');
+
+  assert.deepEqual(vote.sources, [{
+    publisher: 'New York Legislature roll call',
+    url: 'https://legislation.example/votes/41',
+  }]);
+});
+
+test('omits a state vote date when the vote event has no date', async () => {
+  const bill = liveBillFor('J 2143');
+  delete bill.votes[0].start_date;
+  const { fetchImpl } = createFetch({ J2143: jsonResponse(bill) });
+  const service = createOpenStatesEvidenceService({
+    fetchImpl,
+    apiKey: 'test-key',
+    measures: ONE_MEASURE,
+    now: () => FIXED_RETRIEVED_AT,
+  });
+
+  const result = await service.getEvidenceForOfficial({ id: OFFICIAL_ID });
+  const vote = result.records.find((record) => record.actionType === 'roll_call_vote');
+
+  assert.equal(Object.hasOwn(vote, 'date'), false);
 });
 
 test('retries one transient measure response and preserves partial coverage counters', async () => {

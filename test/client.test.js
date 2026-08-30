@@ -64,6 +64,7 @@ const LIVE_PROFILE = {
   office: 'Assembly Member',
   district: 'New York Assembly District 1',
   party: 'Example Party',
+  imageUrl: 'https://example.org/jordan-example.jpg',
   responsibilities: ['Serves in the New York State Assembly.'],
   contact: {
     website: 'https://example.org/live-official',
@@ -71,11 +72,59 @@ const LIVE_PROFILE = {
     phone: '',
     officeAddress: '',
   },
-  issueRecords: [],
+  issueRecords: [{
+    topic: 'antisemitism',
+    position: 'related_action',
+    actionType: 'roll_call_vote',
+    finding: 'Voted Yea on Agreeing to the resolution.',
+    date: '2024-05-01',
+    measure: {
+      jurisdiction: 'United States',
+      session: '118',
+      identifier: 'H R 6090',
+      title: 'Antisemitism Awareness Act of 2023',
+    },
+    action: {
+      option: 'Yea',
+      motion: 'Agreeing to the resolution',
+      result: 'Passed',
+    },
+    sources: [
+      { publisher: 'Office of the Clerk, U.S. House of Representatives', url: 'https://clerk.house.gov/Votes/2024172' },
+      { publisher: 'Congress.gov', url: 'https://www.congress.gov/bill/118th-congress/house-bill/6090' },
+    ],
+    verification: {
+      status: 'live_official_source',
+      matchMethod: 'bioguide_id',
+      retrievedAt: '2026-08-30T12:00:00.000Z',
+    },
+  }, {
+    topic: 'antisemitism',
+    position: 'related_action',
+    actionType: 'cosponsorship',
+    finding: 'Cosponsor of S 1234: Community Safety Act.',
+    measure: {
+      jurisdiction: 'New York',
+      session: '2025-2026',
+      identifier: 'S 1234',
+      title: 'Community Safety Act',
+    },
+    action: { classification: 'Cosponsor' },
+    sources: [{ publisher: 'New York State Senate', url: 'https://www.nysenate.gov/legislation/bills/2025/S1234' }],
+    verification: {
+      status: 'live_official_source',
+      matchMethod: 'ocd_person_id',
+      retrievedAt: '2026-08-30T12:00:00.000Z',
+    },
+  }],
   dataMode: 'live_identity',
   evidenceStatus: {
-    status: 'not_researched',
-    message: 'Identity is live from Open States. Issue evidence has not been researched yet.',
+    status: 'researched',
+    catalogVersion: 'ny-federal-pilot-v1',
+    reviewedMeasureCount: 1,
+    successfulMeasureCount: 1,
+    failedMeasureCount: 0,
+    message: 'Every applicable catalog measure was researched; returned actions are literal official-source records.',
   },
   sourceAttribution: {
     name: 'Open States',
@@ -92,6 +141,7 @@ const LIVE_LOOKUP = {
     office: LIVE_PROFILE.office,
     district: LIVE_PROFILE.district,
     party: LIVE_PROFILE.party,
+    imageUrl: LIVE_PROFILE.imageUrl,
     documentedRecordCount: 0,
     dataMode: 'live_identity',
     evidenceStatus: 'not_researched',
@@ -129,6 +179,10 @@ class FakeNode {
     this.attributes.set(name, String(value));
   }
 
+  removeAttribute(name) {
+    this.attributes.delete(name);
+  }
+
   setCustomValidity() {}
 
   reportValidity() {}
@@ -155,7 +209,7 @@ async function waitFor(predicate) {
   for (let attempt = 0; attempt < 30; attempt += 1) {
     const value = predicate();
     if (value) return value;
-    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setTimeout(resolve, 20));
   }
   throw new Error('Timed out waiting for client state.');
 }
@@ -232,7 +286,38 @@ test('Edit address restores the last successfully submitted address in page memo
   assert.equal(find(app, (node) => node.id === 'address').value, address);
 });
 
-test('manual address submission uses live mode and labels missing issue research accurately', async () => {
+test('typing an address opens a selectable autocomplete dropdown', async () => {
+  const { app } = await loadClient(async (path) => {
+    if (String(path).startsWith('/api/v1/addresses/suggest?')) {
+      return {
+        ok: true,
+        json: async () => ({
+          suggestions: [
+            { id: 'one', label: '350 5th Avenue, New York, New York 10118' },
+            { id: 'two', label: '351 5th Avenue, New York, New York 10016' },
+          ],
+        }),
+      };
+    }
+    return successfulFetch(path);
+  });
+  const input = find(app, (node) => node.id === 'address');
+  input.value = '350 Fifth';
+  input.listeners.get('input')();
+
+  const firstOption = await waitFor(() => find(app, (node) => node.attributes.get('role') === 'option'));
+  const listbox = find(app, (node) => node.attributes.get('role') === 'listbox');
+  assert.equal(input.attributes.get('aria-expanded'), 'true');
+  assert.equal(listbox.children.length, 2);
+
+  firstOption.listeners.get('click')();
+  assert.equal(input.value, '350 5th Avenue, New York, New York 10118');
+  assert.equal(input.attributes.get('aria-expanded'), 'false');
+  assert.equal(listbox.children.length, 0);
+  assert.equal(globalThis.__clientFocusedNode, input);
+});
+
+test('manual address submission uses live mode and prefetched profile evidence on compact cards', async () => {
   const calls = [];
   const { app } = await loadClient(async (path, options = {}) => {
     calls.push({ path, options });
@@ -241,14 +326,54 @@ test('manual address submission uses live mode and labels missing issue research
   });
 
   await submitAddress(app, '350 Fifth Avenue, New York, NY 10118');
-  await waitFor(() => find(app, (node) => node.textContent === 'Issue evidence not researched yet'));
+  await waitFor(() => find(app, (node) => node.textContent === '2 documented official-source records · Research complete'));
 
   assert.deepEqual(JSON.parse(calls[0].options.body), {
     address: '350 Fifth Avenue, New York, NY 10118',
     mode: 'live',
   });
+  assert.equal(find(app, (node) => node.textContent === 'Issue evidence not researched yet'), undefined);
   assert.ok(find(app, (node) => node.textContent === 'Example Party'));
   assert.ok(find(app, (node) => node.textContent === 'View profile'));
+});
+
+test('live official card and profile render the Open States headshot with an initials fallback', async () => {
+  const { app } = await loadClient(async (path) => {
+    const payload = path === '/api/v1/officials/lookup' ? LIVE_LOOKUP : LIVE_PROFILE;
+    return { ok: true, json: async () => structuredClone(payload) };
+  });
+
+  await submitAddress(app, '350 Fifth Avenue, New York, NY 10118');
+  const cardImage = await waitFor(() => find(app, (node) => node.nodeName === 'img'));
+  const cardAvatar = find(app, (node) => node.className === 'official-avatar');
+  assert.equal(cardImage.attributes.get('src'), LIVE_PROFILE.imageUrl);
+  assert.equal(cardImage.attributes.get('alt'), 'Jordan Example');
+  assert.equal(cardAvatar.textContent, 'JE');
+
+  cardImage.listeners.get('error')();
+  assert.equal(cardImage.attributes.get('hidden'), '');
+  assert.equal(cardAvatar.attributes.has('hidden'), false);
+
+  const profileButton = find(app, (node) => node.textContent === 'View profile');
+  profileButton.listeners.get('click')();
+  const profileImage = find(app, (node) => node.nodeName === 'img');
+  assert.equal(profileImage.attributes.get('src'), LIVE_PROFILE.imageUrl);
+});
+
+test('official without an image URL renders initials instead of a broken image', async () => {
+  const lookup = structuredClone(LIVE_LOOKUP);
+  const profile = structuredClone(LIVE_PROFILE);
+  lookup.officials[0].imageUrl = '';
+  profile.imageUrl = '';
+  const { app } = await loadClient(async (path) => ({
+    ok: true,
+    json: async () => structuredClone(path === '/api/v1/officials/lookup' ? lookup : profile),
+  }));
+
+  await submitAddress(app, '350 Fifth Avenue, New York, NY 10118');
+  await waitFor(() => find(app, (node) => node.className === 'official-avatar'));
+  assert.equal(walk(app).some((node) => node.nodeName === 'img'), false);
+  assert.equal(find(app, (node) => node.className === 'official-avatar').textContent, 'JE');
 });
 
 test('demo button makes the next lookup explicitly illustrative', async () => {
@@ -267,7 +392,23 @@ test('demo button makes the next lookup explicitly illustrative', async () => {
   });
 });
 
-test('live profile renders the not-researched state, attribution, and safe empty contacts', async () => {
+test('live profile renders its coverage status, attribution, evidence, and safe empty contacts', async () => {
+  const { app } = await loadClient(async (path) => {
+    const payload = path === '/api/v1/officials/lookup' ? LIVE_LOOKUP : LIVE_PROFILE;
+    return { ok: true, json: async () => structuredClone(payload) };
+  });
+  await submitAddress(app, '350 Fifth Avenue, New York, NY 10118');
+  const profileButton = await waitFor(() => find(app, (node) => node.textContent === 'View profile'));
+  assert.equal(find(app, (node) => node.textContent === LIVE_LOOKUP.coverage.message), undefined);
+  profileButton.listeners.get('click')();
+
+  assert.ok(find(app, (node) => node.textContent === LIVE_PROFILE.evidenceStatus.message));
+  assert.ok(find(app, (node) => node.textContent === 'Data source: Open States'));
+  assert.equal(walk(app).some((node) => node.className === 'evidence-card'), true);
+  assert.ok(walk(app).filter((node) => node.textContent === 'Not provided').length >= 2);
+});
+
+test('live evidence renders literal action details and every source without inferred labels or demo prose', async () => {
   const { app } = await loadClient(async (path) => {
     const payload = path === '/api/v1/officials/lookup' ? LIVE_LOOKUP : LIVE_PROFILE;
     return { ok: true, json: async () => structuredClone(payload) };
@@ -276,10 +417,36 @@ test('live profile renders the not-researched state, attribution, and safe empty
   const profileButton = await waitFor(() => find(app, (node) => node.textContent === 'View profile'));
   profileButton.listeners.get('click')();
 
-  assert.ok(find(app, (node) => node.textContent === LIVE_PROFILE.evidenceStatus.message));
-  assert.ok(find(app, (node) => node.textContent === 'Data source: Open States'));
-  assert.equal(walk(app).some((node) => node.className === 'evidence-card'), false);
-  assert.ok(walk(app).filter((node) => node.textContent === 'Not provided').length >= 2);
+  assert.ok(find(app, (node) => node.textContent === 'Voted Yea on Agreeing to the resolution.'));
+  assert.ok(find(app, (node) => node.textContent === 'Action: Roll call vote'));
+  assert.ok(find(app, (node) => node.textContent === 'Motion: Agreeing to the resolution'));
+  assert.ok(find(app, (node) => node.textContent === 'Vote: Yea'));
+  assert.ok(find(app, (node) => node.textContent === 'Result: Passed'));
+  assert.ok(find(app, (node) => node.textContent === 'Date: 2024-05-01'));
+  assert.ok(find(app, (node) => node.textContent === 'Cosponsor of S 1234: Community Safety Act.'));
+  assert.ok(find(app, (node) => node.textContent === 'Action: Cosponsorship'));
+  assert.ok(find(app, (node) => node.textContent === 'Classification: Cosponsor'));
+  const evidenceCards = walk(app).filter((node) => node.className === 'evidence-card');
+  const sponsorshipCard = evidenceCards.find((card) => find(card, (node) => node.textContent === 'Cosponsor of S 1234: Community Safety Act.'));
+  assert.ok(sponsorshipCard);
+  assert.equal(walk(sponsorshipCard).some((node) => node.textContent.startsWith('Date:')), false);
+  const metadataItems = walk(app).filter((node) => node.className === 'evidence-meta-item');
+  assert.ok(metadataItems.length > 0);
+  assert.ok(metadataItems.every((node) => node.nodeName === 'span'));
+  assert.ok(metadataItems.some((node) => node.textContent === 'Measure: H R 6090 — Antisemitism Awareness Act of 2023'));
+  const sourceLinks = walk(app).filter((node) => node.nodeName === 'a' && node.textContent.startsWith('Open source:'));
+  assert.deepEqual(sourceLinks.map((node) => node.textContent), [
+    'Open source: Office of the Clerk, U.S. House of Representatives',
+    'Open source: Congress.gov',
+    'Open source: New York State Senate',
+  ]);
+  assert.deepEqual(sourceLinks.map((node) => node.attributes.get('href')), [
+    'https://clerk.house.gov/Votes/2024172',
+    'https://www.congress.gov/bill/118th-congress/house-bill/6090',
+    'https://www.nysenate.gov/legislation/bills/2025/S1234',
+  ]);
+  const renderedText = walk(app).map((node) => node.textContent).join('\n');
+  assert.doesNotMatch(renderedText, /\bscore\b|\bsupports\b|\bopposes\b|Verification:/i);
 });
 
 test('failed lookup keeps the submitted address available for correction', async () => {

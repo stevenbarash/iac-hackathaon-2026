@@ -32,6 +32,12 @@ function dereference(value) {
   assert.deepEqual(value, SHARED_ERROR_ENVELOPE);
 }
 
+function assertRequiredProperties(value, required, label) {
+  for (const field of required) {
+    assert.ok(Object.hasOwn(value, field), `${label} includes required ${field}`);
+  }
+}
+
 test('OpenAPI contains the required routes with only their supported methods', () => {
   const requiredOperations = {
     '/api/health': 'get',
@@ -61,6 +67,24 @@ test('lookup request requires address, defaults to live, and supports explicit d
   assert.deepEqual(lookupRequest.properties.topics.items, { $ref: '#/components/schemas/Topic' });
 });
 
+test('lookup operation documents every runtime response status including not found', () => {
+  const responses = openApiDocument.paths['/api/v1/officials/lookup'].post.responses;
+
+  assert.deepEqual(Object.keys(responses).sort(), ['200', '400', '404', '405', '413', '422', '500', '503']);
+  assert.deepEqual(responses['404'], { $ref: '#/components/responses/NotFound' });
+});
+
+test('contact contract accepts either an empty or formatted website and email', () => {
+  const contact = schema('Contact');
+
+  assert.deepEqual(contact.properties.website, {
+    anyOf: [{ const: '' }, { type: 'string', format: 'uri' }],
+  });
+  assert.deepEqual(contact.properties.email, {
+    anyOf: [{ const: '' }, { type: 'string', format: 'email' }],
+  });
+});
+
 test('official detail documents identity mode, evidence status, attribution, and issue records', () => {
   const profileExtension = schema('OfficialProfile').allOf[1];
   const issueRecord = schema('IssueRecord');
@@ -69,13 +93,135 @@ test('official detail documents identity mode, evidence status, attribution, and
   assert.equal(profileExtension.properties.contact.$ref, '#/components/schemas/Contact');
   assert.equal(profileExtension.properties.issueRecords.items.$ref, '#/components/schemas/IssueRecord');
   assert.equal(profileExtension.properties.sourceAttribution.$ref, '#/components/schemas/SourceAttribution');
+  assert.deepEqual(schema('OfficialProfile').allOf[0].properties.party, { type: 'string' });
+  assert.deepEqual(schema('OfficialProfile').allOf[0].properties.imageUrl, { type: 'string' });
+  assert.equal(schema('OfficialProfile').allOf[0].properties.name.description, 'Current or illustrative official name.');
   assert.deepEqual(schema('DataMode').enum, ['live_identity', 'illustrative_demo']);
-  assert.deepEqual(schema('EvidenceStatus').properties.status.enum, ['not_researched', 'illustrative_demo']);
-  assert.deepEqual(issueRecord.required, [
-    'topic', 'position', 'finding', 'date', 'evidenceType', 'source', 'verification',
+  assert.deepEqual(schema('EvidenceStatus').properties.status.enum, [
+    'not_researched', 'researched', 'partially_available', 'temporarily_unavailable', 'illustrative_demo',
   ]);
+  assert.deepEqual(issueRecord.required, ['topic', 'finding', 'verification']);
   assert.equal(issueRecord.properties.source.$ref, '#/components/schemas/EvidenceSource');
-  assert.equal(issueRecord.properties.verification.$ref, '#/components/schemas/Verification');
+  assert.deepEqual(issueRecord.properties.actionType, { $ref: '#/components/schemas/ActionType' });
+  assert.deepEqual(issueRecord.properties.measure, { $ref: '#/components/schemas/Measure' });
+  assert.deepEqual(issueRecord.properties.action, { $ref: '#/components/schemas/LegislativeAction' });
+  assert.deepEqual(issueRecord.properties.sources.items, { $ref: '#/components/schemas/EvidenceSource' });
+  assert.deepEqual(issueRecord.properties.verification.oneOf, [
+    { $ref: '#/components/schemas/Verification' },
+    { $ref: '#/components/schemas/LiveVerification' },
+  ]);
+});
+
+test('OpenAPI documents normalized literal live-action records', () => {
+  const liveBranch = schema('IssueRecord').oneOf[1];
+
+  assert.deepEqual(schema('ActionType').enum, ['sponsorship', 'cosponsorship', 'roll_call_vote']);
+  assert.deepEqual(schema('Measure').required, ['jurisdiction', 'session', 'identifier', 'title']);
+  assert.deepEqual(schema('LegislativeAction').properties, {
+    classification: { type: 'string' },
+    option: { type: 'string' },
+    motion: { type: 'string' },
+    result: { type: 'string' },
+  });
+  assert.deepEqual(schema('LiveVerification').required, ['status', 'matchMethod', 'retrievedAt']);
+  assert.equal(schema('LiveVerification').properties.status.const, 'live_official_source');
+  assert.deepEqual(liveBranch.required, ['position', 'actionType', 'measure', 'action', 'sources']);
+  assert.equal(liveBranch.properties.sources.minItems, 1);
+  assert.equal(liveBranch.properties.sources.items.$ref, '#/components/schemas/LiveEvidenceSource');
+  assert.deepEqual(schema('LiveEvidenceSource').required, ['publisher', 'url']);
+  assert.deepEqual(schema('IssueRecord').properties.date, { type: 'string', format: 'date' });
+  for (const counter of ['reviewedMeasureCount', 'successfulMeasureCount', 'failedMeasureCount']) {
+    assert.deepEqual(schema('EvidenceStatus').properties[counter], { type: 'integer', minimum: 0 });
+  }
+});
+
+test('representative live HTTP response satisfies documented required shapes with optional action dates', async () => {
+  const liveId = 'ocd-person/contract-live-001';
+  const liveProfile = {
+    id: liveId,
+    name: 'Jordan Contract',
+    office: 'Assembly Member',
+    district: 'Assembly District 1',
+    responsibilities: ['Represents constituents.'],
+    contact: { website: '', email: '', phone: '', officeAddress: '' },
+    issueRecords: [{
+      topic: 'antisemitism',
+      position: 'related_action',
+      actionType: 'cosponsorship',
+      finding: 'Cosponsor of J 2143: Fixture resolution.',
+      measure: {
+        jurisdiction: 'New York',
+        session: '2025-2026',
+        identifier: 'J 2143',
+        title: 'Fixture resolution',
+      },
+      action: { classification: 'cosponsor' },
+      sources: [{ publisher: 'New York Legislature', url: 'https://legislation.example/bill' }],
+      verification: {
+        status: 'live_official_source',
+        matchMethod: 'ocd_person_id',
+        retrievedAt: '2026-08-30T12:00:00.000Z',
+      },
+    }, {
+      topic: 'ihra',
+      position: 'related_action',
+      actionType: 'roll_call_vote',
+      finding: 'Voted Yea on On Passage.',
+      date: '2024-05-01',
+      measure: {
+        jurisdiction: 'United States',
+        session: '118',
+        identifier: 'H R 6090',
+        title: 'Fixture act',
+      },
+      action: { option: 'Yea', motion: 'On Passage', result: 'Passed' },
+      sources: [{ publisher: 'Office of the Clerk, U.S. House of Representatives', url: 'https://clerk.house.gov/Votes/2024172' }],
+      verification: {
+        status: 'live_official_source',
+        matchMethod: 'bioguide_id',
+        retrievedAt: '2026-08-30T12:00:00.000Z',
+      },
+    }],
+    dataMode: 'live_identity',
+    evidenceStatus: {
+      status: 'researched',
+      catalogVersion: 'ny-federal-pilot-v1',
+      reviewedMeasureCount: 1,
+      successfulMeasureCount: 1,
+      failedMeasureCount: 0,
+      message: 'Every applicable catalog measure was researched.',
+    },
+  };
+  const app = createAppServer({ async getOfficial() { return liveProfile; } });
+  await new Promise((resolve, reject) => {
+    app.once('error', reject);
+    app.listen(0, '127.0.0.1', resolve);
+  });
+
+  try {
+    const response = await fetch(`http://127.0.0.1:${app.address().port}/api/v1/officials/${encodeURIComponent(liveId)}`);
+    assert.equal(response.status, 200);
+    const profile = await response.json();
+    for (const profileSchema of schema('OfficialProfile').allOf) {
+      assertRequiredProperties(profile, profileSchema.required || [], 'live profile');
+    }
+    assertRequiredProperties(profile.evidenceStatus, schema('EvidenceStatus').required, 'evidence status');
+    for (const [index, record] of profile.issueRecords.entries()) {
+      assertRequiredProperties(record, schema('IssueRecord').required, `live issue record ${index}`);
+      assertRequiredProperties(record, schema('IssueRecord').oneOf[1].required, `live issue record ${index}`);
+      assertRequiredProperties(record.measure, schema('Measure').required, `live measure ${index}`);
+      assertRequiredProperties(record.verification, schema('LiveVerification').required, `live verification ${index}`);
+      assert.ok(record.sources.length >= schema('IssueRecord').oneOf[1].properties.sources.minItems);
+      for (const source of record.sources) {
+        assertRequiredProperties(source, schema('LiveEvidenceSource').required, `live source ${index}`);
+        assert.match(source.url, /^https?:\/\//);
+      }
+    }
+    assert.equal(Object.hasOwn(profile.issueRecords[0], 'date'), false);
+    assert.match(profile.issueRecords[1].date, /^\d{4}-\d{2}-\d{2}$/);
+  } finally {
+    await new Promise((resolve, reject) => app.close((error) => error ? reject(error) : resolve()));
+  }
 });
 
 test('documented error responses use the shared error envelope', () => {
