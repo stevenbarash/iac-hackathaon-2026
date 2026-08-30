@@ -192,6 +192,52 @@ test('server awaits live lookup and encoded Open States profile IDs', async () =
   }
 });
 
+test('server forwards a per-request Open States key outside request bodies', async () => {
+  const liveId = 'ocd-person/11111111-2222-3333-4444-555555555555';
+  const received = {};
+  const app = createAppServer({
+    async lookup(input, context) {
+      received.lookupInput = input;
+      received.lookupContext = context;
+      return { ok: true };
+    },
+    async getOfficial(id, context) {
+      received.profileId = id;
+      received.profileContext = context;
+      return { ok: true };
+    },
+  });
+  await new Promise((resolve, reject) => {
+    app.once('error', reject);
+    app.listen(0, '127.0.0.1', resolve);
+  });
+
+  try {
+    const { port } = app.address();
+    const requestHeaders = {
+      'content-type': 'application/json',
+      'x-openstates-api-key': 'session-user-key',
+    };
+    const lookupResponse = await fetch(`http://127.0.0.1:${port}/api/v1/officials/lookup`, {
+      method: 'POST',
+      headers: requestHeaders,
+      body: JSON.stringify({ address: STREET_ADDRESS }),
+    });
+    const profileResponse = await fetch(`http://127.0.0.1:${port}/api/v1/officials/${encodeURIComponent(liveId)}`, {
+      headers: { 'x-openstates-api-key': 'session-user-key' },
+    });
+
+    assert.equal(lookupResponse.status, 200);
+    assert.equal(profileResponse.status, 200);
+    assert.deepEqual(received.lookupInput, { address: STREET_ADDRESS });
+    assert.deepEqual(received.lookupContext, { openStatesApiKey: 'session-user-key' });
+    assert.equal(received.profileId, liveId);
+    assert.deepEqual(received.profileContext, { openStatesApiKey: 'session-user-key' });
+  } finally {
+    await new Promise((resolve, reject) => app.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
 test('OpenAPI endpoint returns an OpenAPI 3.1 document', async () => {
   const response = await request('/api/openapi.json');
 

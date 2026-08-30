@@ -3,7 +3,7 @@
   "info": {
     "title": "Know Your Officials API",
     "version": "v1",
-    "description": "A stateless civic-information API with a browser client. Live mode geocodes an address with the U.S. Census Geocoder, retrieves current official identity data from Open States, and returns literal actions from the configured official-source measure catalog when available. Coverage status distinguishes researched, partial, unavailable, and not-yet-researched evidence. Demo mode returns entirely fictional illustrative records. Full addresses are never persisted or echoed in responses."
+    "description": "A stateless civic-information API with a browser client. Live mode geocodes an address with the U.S. Census Geocoder and a Photon availability fallback, retrieves current official identity data from Open States, and returns literal actions from the configured official-source measure catalog when available. Coverage status distinguishes researched, partial, unavailable, and not-yet-researched evidence. Demo mode returns entirely fictional illustrative records. Full addresses and API keys are never persisted by the server or echoed in responses."
   },
   "servers": [{ "url": "http://localhost:3000" }],
   "paths": {
@@ -22,7 +22,14 @@
     "/api/v1/officials/lookup": {
       "post": {
         "summary": "Resolve elected officials for an address",
-        "description": "Live mode is the default. The address is sent to the U.S. Census Geocoder and is not stored or returned; only resulting coordinates are sent to Open States. Demo mode returns fictional illustrative data.",
+        "description": "Live mode is the default. The address is sent to the U.S. Census Geocoder and may be sent to Photon if Census remains unavailable; it is not stored or returned. Only resulting coordinates are sent to Open States. Demo mode returns fictional illustrative data.",
+        "parameters": [{
+          "name": "X-OpenStates-API-Key",
+          "in": "header",
+          "required": false,
+          "schema": { "type": "string" },
+          "description": "Optional key for this request. When omitted or blank, the server uses its configured default key."
+        }],
         "requestBody": {
           "required": true,
           "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LookupRequest" } } }
@@ -45,7 +52,7 @@
     "/api/v1/addresses/suggest": {
       "get": {
         "summary": "Suggest U.S. street addresses",
-        "description": "Proxies a short-lived search-as-you-type request to Photon. Query text is not stored by this service. Final official lookup still uses the U.S. Census Geocoder.",
+        "description": "Proxies a short-lived search-as-you-type request to Photon. Query text is not stored by this service. Final official lookup uses the U.S. Census Geocoder with Photon as an availability fallback.",
         "parameters": [{
           "name": "q",
           "in": "query",
@@ -71,6 +78,12 @@
           "required": true,
           "schema": { "type": "string" },
           "description": "URL-encoded Open States or illustrative demo official identifier."
+        }, {
+          "name": "X-OpenStates-API-Key",
+          "in": "header",
+          "required": false,
+          "schema": { "type": "string" },
+          "description": "Optional key for this request. When omitted or blank, the server uses its configured default key."
         }],
         "responses": {
           "200": {

@@ -74,6 +74,10 @@ a:hover { color: var(--blue); }
 .display-switch button:hover { background: var(--sky); }
 .display-switch button[aria-pressed="true"] { border-color: var(--ink); background: var(--ink); color: var(--paper); }
 .text-large { font-size: 1.15em; }.text-xlarge { font-size: 1.35em; }
+.api-settings-button { display: inline-grid; place-items: center; flex: 0 0 auto; width: 2.75rem; height: 2.75rem; padding: .65rem; border: 1px solid var(--line); border-radius: 50%; background: var(--paper); color: var(--ink); cursor: pointer; transition: background-color 180ms var(--ease-out), border-color 180ms var(--ease-out), transform 180ms var(--ease-out); }
+.api-settings-button:hover { border-color: var(--blue); background: var(--sky); }
+.api-settings-button:active { transform: rotate(18deg); }
+.api-settings-button svg { width: 100%; height: 100%; fill: currentColor; }
 
 main { width: min(100% - 2rem, 72rem); margin: 0 auto; padding: 2.5rem 0 4rem; }
 .intro { max-width: 48rem; padding: 1.5rem 0 1rem; }
@@ -167,6 +171,7 @@ input:focus { border-color: var(--blue); }
 .draft-body { display: grid; gap: .55rem; max-height: calc(100vh - 7rem); padding: 1.2rem; overflow-y: auto; }
 .draft-body input, .draft-body select, .draft-body textarea { width: 100%; margin: 0 0 .45rem; padding: .75rem .85rem; border: 1px solid var(--line); border-radius: .55rem; background: var(--paper); color: var(--ink); }
 .draft-body textarea { resize: vertical; line-height: 1.5; }
+.settings-actions { margin-top: .7rem; }
 .icon-button { width: 2.4rem; height: 2.4rem; border: 1px solid var(--line); border-radius: 50%; background: var(--paper); color: var(--ink); font-size: 1.4rem; cursor: pointer; }
 .toast { position: fixed; z-index: 20; bottom: 1rem; left: 50%; margin: 0; padding: .65rem 1rem; border-radius: 999px; background: var(--ink); color: var(--paper); transform: translateX(-50%); }
 

@@ -186,6 +186,23 @@ test('normalizes an exact OCD cosponsorship from live bill fields', async () => 
   }
 });
 
+test('evidence requests prefer a request key over the configured default', async () => {
+  const { fetchImpl, requests } = createFetch({ J2143: jsonResponse(LIVE_BILL) });
+  const service = createOpenStatesEvidenceService({
+    fetchImpl,
+    apiKey: 'configured-default-key',
+    measures: ONE_MEASURE,
+    now: () => FIXED_RETRIEVED_AT,
+  });
+
+  await service.getEvidenceForOfficial(
+    { id: OFFICIAL_ID },
+    { openStatesApiKey: 'session-user-key' },
+  );
+
+  assert.equal(requests[0].options.headers['X-API-KEY'], 'session-user-key');
+});
+
 test('does not treat a raw sponsor name as an identity match', async () => {
   const rawNameOnlyBill = structuredClone(LIVE_BILL);
   rawNameOnlyBill.sponsorships = [{

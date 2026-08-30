@@ -49,6 +49,12 @@ function handleError(response, error) {
   sendError(response, 500, 'INTERNAL_ERROR', 'An unexpected server error occurred.');
 }
 
+function openStatesContext(request) {
+  return {
+    openStatesApiKey: String(request.headers['x-openstates-api-key'] || '').trim(),
+  };
+}
+
 async function route(request, response, { lookup, getOfficial, suggestAddresses }) {
   const rawPathname = request.url.split('?', 1)[0];
   if (/(?:^|\/)(?:(?:\.|%2e){1,2})(?:\/|$)/i.test(rawPathname)) {
@@ -92,7 +98,7 @@ async function route(request, response, { lookup, getOfficial, suggestAddresses 
       return;
     }
     const body = await readJsonBody(request);
-    sendJson(response, 200, await lookup(body));
+    sendJson(response, 200, await lookup(body, openStatesContext(request)));
     return;
   }
 
@@ -103,7 +109,7 @@ async function route(request, response, { lookup, getOfficial, suggestAddresses 
       return;
     }
     const officialId = safelyDecodeOfficialId(officialMatch[1]);
-    sendJson(response, 200, await getOfficial(officialId));
+    sendJson(response, 200, await getOfficial(officialId, openStatesContext(request)));
     return;
   }
 

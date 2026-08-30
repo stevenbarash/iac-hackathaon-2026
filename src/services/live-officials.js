@@ -6,6 +6,7 @@ import { createOfficialEvidenceService } from './official-evidence.js';
 import { createOpenStatesEvidenceService } from './openstates-evidence.js';
 
 const CENSUS_URL = 'https://geocoding.geo.census.gov/geocoder/locations/onelineaddress';
+const PHOTON_URL = 'https://photon.komoot.io/api/';
 const OPEN_STATES_URL = 'https://v3.openstates.org';
 const UPSTREAM_TIMEOUT_MS = 5000;
 
@@ -119,6 +120,31 @@ function normalizeOtherIdentifiers(otherIdentifiers) {
   return normalized;
 }
 
+function photonAddressMatch(payload, address) {
+  const zip = address.match(/\b\d{5}(?:-\d{4})?\b/)?.[0]?.slice(0, 5) || '';
+  const state = address.match(/\b([A-Za-z]{2})\s+\d{5}(?:-\d{4})?\b/)?.[1]
+    || payload?.features?.[0]?.properties?.state
+    || '';
+  const feature = (Array.isArray(payload?.features) ? payload.features : []).find((candidate) => {
+    const properties = candidate?.properties || {};
+    const coordinates = candidate?.geometry?.coordinates;
+    return String(properties.countrycode || '').toUpperCase() === 'US'
+      && String(properties.postcode || '').slice(0, 5) === zip
+      && Array.isArray(coordinates)
+      && coordinates.length >= 2
+      && coordinates.every(Number.isFinite);
+  });
+  if (!feature) return null;
+  return {
+    coordinates: { x: feature.geometry.coordinates[0], y: feature.geometry.coordinates[1] },
+    addressComponents: {
+      city: feature.properties.city || feature.properties.locality || '',
+      state,
+      zip,
+    },
+  };
+}
+
 async function readJson(response) {
   if (!response.ok) throw upstreamError();
   try {
@@ -152,8 +178,13 @@ export function createLiveOfficialService({
     throw upstreamError();
   }
 
-  async function lookup({ address } = {}) {
-    if (!apiKey) throw configurationError();
+  function keyForRequest({ openStatesApiKey = '' } = {}) {
+    return String(openStatesApiKey).trim() || apiKey;
+  }
+
+  async function lookup({ address } = {}, context = {}) {
+    const requestApiKey = keyForRequest(context);
+    if (!requestApiKey) throw configurationError();
     if (typeof address !== 'string' || address.trim() === '') {
       throw new DomainError('ADDRESS_REQUIRED', 'Enter a full U.S. address to find live officials.', 400);
     }
@@ -169,8 +200,25 @@ export function createLiveOfficialService({
     censusUrl.searchParams.set('address', address.trim());
     censusUrl.searchParams.set('benchmark', 'Public_AR_Current');
     censusUrl.searchParams.set('format', 'json');
-    const censusBody = await readJson(await request(censusUrl));
-    const matches = censusBody?.result?.addressMatches;
+    let matches;
+    try {
+      const censusBody = await readJson(await request(censusUrl));
+      matches = censusBody?.result?.addressMatches;
+    } catch (error) {
+      if (!(error instanceof DomainError) || error.code !== 'UPSTREAM_SERVICE_UNAVAILABLE') throw error;
+      const photonUrl = new URL(PHOTON_URL);
+      photonUrl.searchParams.set('q', address.trim());
+      photonUrl.searchParams.set('countrycode', 'us');
+      photonUrl.searchParams.set('layer', 'house');
+      photonUrl.searchParams.set('limit', '3');
+      photonUrl.searchParams.set('lang', 'en');
+      const photonBody = await readJson(await request(photonUrl, {
+        headers: { accept: 'application/geo+json, application/json' },
+      }));
+      const fallbackMatch = photonAddressMatch(photonBody, address);
+      if (!fallbackMatch) throw error;
+      matches = [fallbackMatch];
+    }
     if (!Array.isArray(matches) || matches.length === 0) {
       throw new DomainError('ADDRESS_NOT_FOUND', 'The U.S. Census Geocoder could not match that address.', 404);
     }
@@ -183,7 +231,7 @@ export function createLiveOfficialService({
     openStatesUrl.searchParams.set('lat', String(match.coordinates.y));
     openStatesUrl.searchParams.set('lng', String(match.coordinates.x));
     const peopleBody = await readJson(await request(openStatesUrl, {
-      headers: { 'X-API-KEY': apiKey },
+      headers: { 'X-API-KEY': requestApiKey },
     }));
     const people = Array.isArray(peopleBody?.results)
       ? peopleBody.results.filter((person) => person?.id && person?.name && person?.current_role)
@@ -207,8 +255,9 @@ export function createLiveOfficialService({
     };
   }
 
-  async function getOfficial(id) {
-    if (!apiKey) throw configurationError();
+  async function getOfficial(id, context = {}) {
+    const requestApiKey = keyForRequest(context);
+    if (!requestApiKey) throw configurationError();
     if (typeof id !== 'string' || !id.startsWith('ocd-person/')) {
       throw new DomainError('OFFICIAL_NOT_FOUND', 'No live official matches that identifier.', 404);
     }
@@ -219,7 +268,7 @@ export function createLiveOfficialService({
     openStatesUrl.searchParams.append('include', 'offices');
     openStatesUrl.searchParams.append('include', 'other_identifiers');
     const peopleBody = await readJson(await request(openStatesUrl, {
-      headers: { 'X-API-KEY': apiKey },
+      headers: { 'X-API-KEY': requestApiKey },
     }));
     const person = peopleBody?.results?.[0];
     if (!person) throw new DomainError('OFFICIAL_NOT_FOUND', 'No live official matches that identifier.', 404);
@@ -230,7 +279,7 @@ export function createLiveOfficialService({
         jurisdictionId: person.jurisdiction?.id || '',
         roleClassification: person.current_role?.org_classification || '',
         otherIdentifiers: normalizeOtherIdentifiers(person.other_identifiers),
-      });
+      }, { openStatesApiKey: requestApiKey });
       return { ...profile, ...evidence };
     } catch {
       return {

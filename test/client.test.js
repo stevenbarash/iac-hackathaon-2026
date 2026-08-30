@@ -191,6 +191,14 @@ class FakeNode {
     globalThis.__clientFocusedNode = this;
   }
 
+  showModal() {
+    this.open = true;
+  }
+
+  close() {
+    this.open = false;
+  }
+
   querySelector(selector) {
     const topic = /^\[data-topic="(.+)"\]$/.exec(selector)?.[1];
     return walk(this).find((node) => topic !== undefined && node.dataset.topic === topic) || null;
@@ -217,11 +225,27 @@ async function waitFor(predicate) {
 async function loadClient(fetchImplementation) {
   const app = new FakeNode('main');
   const status = new FakeNode('p');
+  const settings = {
+    button: new FakeNode('button'),
+    dialog: new FakeNode('dialog'),
+    form: new FakeNode('form'),
+    input: new FakeNode('input'),
+    close: new FakeNode('button'),
+    clear: new FakeNode('button'),
+  };
+  const settingsSelectors = new Map([
+    ['#api-settings-button', settings.button],
+    ['#api-settings-dialog', settings.dialog],
+    ['#api-settings-form', settings.form],
+    ['#openstates-api-key', settings.input],
+    ['#api-settings-close', settings.close],
+    ['#api-settings-clear', settings.clear],
+  ]);
   globalThis.document = {
     querySelector(selector) {
       if (selector === '#app') return app;
       if (selector === '#status') return status;
-      return null;
+      return settingsSelectors.get(selector) || null;
     },
     createElement(name) {
       return new FakeNode(name);
@@ -233,7 +257,7 @@ async function loadClient(fetchImplementation) {
   globalThis.requestAnimationFrame = (callback) => callback();
   globalThis.fetch = fetchImplementation;
   const client = await import(`../public/app.js?client-test=${moduleNumber += 1}`);
-  return { app, client };
+  return { app, client, settings };
 }
 
 function successfulFetch(path) {
@@ -256,7 +280,12 @@ test.after(() => {
   delete globalThis.document;
   delete globalThis.requestAnimationFrame;
   delete globalThis.fetch;
+  delete globalThis.sessionStorage;
   delete globalThis.__clientFocusedNode;
+});
+
+test.afterEach(() => {
+  delete globalThis.sessionStorage;
 });
 
 test('profile renders every supported topic and a neutral empty state for an absent topic', async () => {
@@ -337,6 +366,83 @@ test('manual address submission uses live mode and prefetched profile evidence o
   assert.ok(find(app, (node) => node.textContent === 'View profile'));
 });
 
+test('a session-persisted Open States key is sent only in live API request headers', async () => {
+  const calls = [];
+  globalThis.sessionStorage = {
+    getItem(key) {
+      return key === 'kyo.openstatesApiKey.v1' ? 'session-user-key' : null;
+    },
+    setItem() {},
+    removeItem() {},
+  };
+  const { app } = await loadClient(async (path, options = {}) => {
+    calls.push({ path, options });
+    const payload = path === '/api/v1/officials/lookup' ? LIVE_LOOKUP : LIVE_PROFILE;
+    return { ok: true, json: async () => structuredClone(payload) };
+  });
+
+  await submitAddress(app, '350 Fifth Avenue, New York, NY 10118');
+  await waitFor(() => find(app, (node) => node.textContent === 'View profile'));
+
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].options.headers['x-openstates-api-key'], 'session-user-key');
+  assert.equal(calls[1].options.headers['x-openstates-api-key'], 'session-user-key');
+  assert.equal(calls.every(({ path }) => !String(path).includes('session-user-key')), true);
+  assert.equal(JSON.stringify(JSON.parse(calls[0].options.body)).includes('session-user-key'), false);
+});
+
+test('API settings replace the session key used by subsequent live requests', async () => {
+  const stored = new Map([['kyo.openstatesApiKey.v1', 'old-session-key']]);
+  const calls = [];
+  globalThis.sessionStorage = {
+    getItem(key) { return stored.get(key) || null; },
+    setItem(key, value) { stored.set(key, value); },
+    removeItem(key) { stored.delete(key); },
+  };
+  const { app, settings } = await loadClient(async (path, options = {}) => {
+    calls.push({ path, options });
+    const payload = path === '/api/v1/officials/lookup' ? LIVE_LOOKUP : LIVE_PROFILE;
+    return { ok: true, json: async () => structuredClone(payload) };
+  });
+
+  assert.equal(settings.input.value, 'old-session-key');
+  settings.button.listeners.get('click')();
+  assert.equal(settings.dialog.open, true);
+  settings.input.value = 'new-session-key';
+  settings.form.listeners.get('submit')({ preventDefault() {} });
+  assert.equal(stored.get('kyo.openstatesApiKey.v1'), 'new-session-key');
+  assert.equal(settings.dialog.open, false);
+
+  await submitAddress(app, '350 Fifth Avenue, New York, NY 10118');
+  await waitFor(() => find(app, (node) => node.textContent === 'View profile'));
+  assert.equal(calls[0].options.headers['x-openstates-api-key'], 'new-session-key');
+});
+
+test('API settings can clear the session key and restore the default', async () => {
+  const stored = new Map([['kyo.openstatesApiKey.v1', 'session-user-key']]);
+  const calls = [];
+  globalThis.sessionStorage = {
+    getItem(key) { return stored.get(key) || null; },
+    setItem(key, value) { stored.set(key, value); },
+    removeItem(key) { stored.delete(key); },
+  };
+  const { app, settings } = await loadClient(async (path, options = {}) => {
+    calls.push({ path, options });
+    const payload = path === '/api/v1/officials/lookup' ? LIVE_LOOKUP : LIVE_PROFILE;
+    return { ok: true, json: async () => structuredClone(payload) };
+  });
+
+  settings.button.listeners.get('click')();
+  settings.clear.listeners.get('click')();
+
+  assert.equal(stored.has('kyo.openstatesApiKey.v1'), false);
+  assert.equal(settings.input.value, '');
+  assert.equal(settings.dialog.open, false);
+  await submitAddress(app, '350 Fifth Avenue, New York, NY 10118');
+  await waitFor(() => find(app, (node) => node.textContent === 'View profile'));
+  assert.equal(calls[0].options.headers['x-openstates-api-key'], undefined);
+});
+
 test('live official card and profile render the Open States headshot with an initials fallback', async () => {
   const { app } = await loadClient(async (path) => {
     const payload = path === '/api/v1/officials/lookup' ? LIVE_LOOKUP : LIVE_PROFILE;
@@ -378,6 +484,13 @@ test('official without an image URL renders initials instead of a broken image',
 
 test('demo button makes the next lookup explicitly illustrative', async () => {
   const calls = [];
+  globalThis.sessionStorage = {
+    getItem(key) {
+      return key === 'kyo.openstatesApiKey.v1' ? 'session-user-key' : null;
+    },
+    setItem() {},
+    removeItem() {},
+  };
   const { app } = await loadClient(async (path, options = {}) => {
     calls.push({ path, options });
     return successfulFetch(path);
@@ -390,6 +503,7 @@ test('demo button makes the next lookup explicitly illustrative', async () => {
     address: 'Brooklyn, NY 11201',
     mode: 'demo',
   });
+  assert.equal(calls.every(({ options }) => options.headers?.['x-openstates-api-key'] === undefined), true);
 });
 
 test('live profile renders its coverage status, attribution, evidence, and safe empty contacts', async () => {
