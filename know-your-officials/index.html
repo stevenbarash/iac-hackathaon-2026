@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="system" data-textsize="normal">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Know Your Officials</title>
+<meta name="description" content="Enter any US address or ZIP code to see who represents you in your statehouse and in Washington, what they work on, and how to reach them." />
+<meta name="color-scheme" content="light dark" />
+<link rel="stylesheet" href="assets/styles.css" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='16' fill='%236B34B8'/%3E%3Ctext x='16' y='23' font-family='Helvetica,Arial' font-size='18' font-weight='bold' fill='white' text-anchor='middle'%3EK%3C/text%3E%3C/svg%3E" />
+</head>
+<!--
+  All sentence text on this page comes from assets/copy.js. Elements carry a
+  data-copy key instead of literal words, and are filled in on load:
+    data-copy              -> textContent
+    data-copy-placeholder  -> placeholder
+    data-copy-aria         -> aria-label
+-->
+<body>
+
+<a class="skip" href="#main" data-copy="skip"></a>
+
+<header class="masthead">
+  <div class="shell masthead-row">
+    <a class="wordmark" href="#/">
+      <span class="wordmark-bullet" aria-hidden="true">K</span>
+      <span class="wordmark-text">
+        <b data-copy="brand.name"></b>
+        <i data-copy="brand.tagline"></i>
+      </span>
+    </a>
+
+    <div class="display-controls">
+      <fieldset class="switch" id="textsize-switch">
+        <legend data-copy="display.textSize"></legend>
+        <button type="button" data-textsize="normal" aria-pressed="true"><span aria-hidden="true">A</span><span class="sr" data-copy="display.textSize.normal"></span></button>
+        <button type="button" data-textsize="large" aria-pressed="false"><span aria-hidden="true" class="a-lg">A</span><span class="sr" data-copy="display.textSize.large"></span></button>
+        <button type="button" data-textsize="xlarge" aria-pressed="false"><span aria-hidden="true" class="a-xl">A</span><span class="sr" data-copy="display.textSize.largest"></span></button>
+      </fieldset>
+      <fieldset class="switch" id="theme-switch">
+        <legend data-copy="display.color"></legend>
+        <button type="button" data-theme="system" aria-pressed="true" data-copy="display.color.auto"></button>
+        <button type="button" data-theme="light" aria-pressed="false" data-copy="display.color.light"></button>
+        <button type="button" data-theme="dark" aria-pressed="false" data-copy="display.color.dark"></button>
+      </fieldset>
+    </div>
+  </div>
+</header>
+
+<main id="main" tabindex="-1">
+
+  <!-- ══════════════════  1 · SEARCH  ══════════════════ -->
+  <section class="screen" id="view-home" hidden>
+    <div class="shell opening">
+      <h1 class="headline" data-copy="home.headline"></h1>
+      <p class="standfirst" data-copy="home.standfirst"></p>
+
+      <form class="finder" id="home-search" role="search" novalidate>
+        <fieldset class="switch is-plain" id="mode-switch">
+          <legend class="sr" data-copy="home.mode.legend"></legend>
+          <button type="button" data-mode="address" aria-pressed="true" data-copy="home.mode.address"></button>
+          <button type="button" data-mode="zip" aria-pressed="false" data-copy="home.mode.zip"></button>
+        </fieldset>
+
+        <!-- Label and placeholder are set by the address/ZIP toggle. -->
+        <label class="finder-label" for="home-q"></label>
+        <div class="finder-row">
+          <input id="home-q" name="q" type="text" enterkeyhint="search" />
+          <button class="action action-go" type="submit" data-copy="home.submit"></button>
+        </div>
+        <p class="finder-note" id="home-note" data-copy="home.privacy"></p>
+      </form>
+    </div>
+  </section>
+
+  <!-- ══════════════════  2 · RESULTS  ══════════════════ -->
+  <section class="screen" id="view-results" hidden>
+    <div class="resultbar">
+      <div class="shell">
+        <form class="finder is-inline" id="results-search" role="search" novalidate>
+          <label class="sr" for="results-q" data-copy="results.searchLabel"></label>
+          <div class="finder-row">
+            <input id="results-q" name="q" type="text" enterkeyhint="search" />
+            <button class="action action-go" type="submit" data-copy="results.submit"></button>
+          </div>
+        </form>
+        <div id="district-summary" class="districts" aria-live="polite"></div>
+      </div>
+    </div>
+
+    <div class="shell layout-results">
+      <aside class="sidebar" data-copy-aria="results.narrow">
+        <details class="narrow" open>
+          <summary><span data-copy="results.narrow"></span><span class="summary-mark" aria-hidden="true"></span></summary>
+          <div class="narrow-body">
+            <fieldset class="narrow-group">
+              <legend data-copy="results.group.level"></legend>
+              <div id="filter-level" class="ticks"></div>
+            </fieldset>
+            <fieldset class="narrow-group">
+              <legend data-copy="results.group.office"></legend>
+              <div id="filter-office" class="ticks"></div>
+            </fieldset>
+            <fieldset class="narrow-group">
+              <legend data-copy="results.group.party"></legend>
+              <div id="filter-party" class="ticks"></div>
+            </fieldset>
+            <fieldset class="narrow-group">
+              <legend data-copy="results.group.contact"></legend>
+              <div id="filter-contact" class="ticks"></div>
+            </fieldset>
+            <button type="button" class="action action-quiet action-wide" id="filter-reset" data-copy="results.reset"></button>
+          </div>
+        </details>
+      </aside>
+
+      <div class="listcol">
+        <div class="listcol-head">
+          <p class="listcol-count" id="results-count" aria-live="polite"></p>
+          <label class="orderer">
+            <span data-copy="results.order"></span>
+            <select id="results-sort">
+              <option value="level" data-copy="results.order.level"></option>
+              <option value="name" data-copy="results.order.name"></option>
+              <option value="party" data-copy="results.order.party"></option>
+            </select>
+          </label>
+        </div>
+        <ul class="cards" id="official-list"></ul>
+        <div id="results-empty" class="nothing" hidden></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════  3 · OFFICIAL  ══════════════════ -->
+  <section class="screen" id="view-official" hidden>
+    <div class="shell">
+      <nav class="backlink" data-copy-aria="official.breadcrumb"><a href="#" id="crumb-back"></a></nav>
+    </div>
+    <div class="shell layout-official" id="official-layout"></div>
+  </section>
+
+  <!-- ══════════════════  WORKING  ══════════════════ -->
+  <section class="screen" id="view-loading" hidden>
+    <div class="shell working">
+      <div class="pulse" aria-hidden="true"><span></span><span></span><span></span></div>
+      <p id="loading-text" data-copy="loading.default"></p>
+    </div>
+  </section>
+</main>
+
+<footer class="footer">
+  <div class="shell footer-row">
+    <p><b data-copy="brand.name"></b> — <span data-copy="footer.blurb"></span></p>
+    <p class="quiet" id="footer-updated"></p>
+  </div>
+</footer>
+
+<dialog class="sheet" id="draft-modal" aria-labelledby="draft-title">
+  <form method="dialog" class="sheet-inner">
+    <header class="sheet-head">
+      <h2 id="draft-title" data-copy="draft.title"></h2>
+      <button class="roundbtn" value="close" data-copy-aria="draft.close">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </header>
+    <div class="sheet-body" id="draft-body"></div>
+  </form>
+</dialog>
+
+<div class="flash" id="toast" role="status" aria-live="polite" hidden></div>
+
+<script src="assets/copy.js"></script>
+<script src="data/officials.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>
