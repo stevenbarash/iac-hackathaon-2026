@@ -200,7 +200,7 @@ export function createOpenStatesEvidenceService({
 } = {}) {
   const requestTimeoutMs = boundedTimeout(timeoutMs);
 
-  async function fetchBill(measure) {
+  async function fetchBill(measure, requestApiKey) {
     const url = new URL(
       `/bills/${encodeURIComponent(measure.jurisdiction)}/${encodeURIComponent(measure.session)}/${encodeURIComponent(measure.lookupId)}`,
       OPEN_STATES_URL,
@@ -213,7 +213,7 @@ export function createOpenStatesEvidenceService({
       let response;
       try {
         response = await fetchImpl(url, {
-          headers: { 'X-API-KEY': apiKey },
+          headers: { 'X-API-KEY': requestApiKey },
           signal: AbortSignal.timeout(requestTimeoutMs),
         });
       } catch (error) {
@@ -233,7 +233,7 @@ export function createOpenStatesEvidenceService({
     throw new Error('Open States bill request failed.');
   }
 
-  async function getEvidenceForOfficial({ id } = {}) {
+  async function getEvidenceForOfficial({ id } = {}, { openStatesApiKey = '' } = {}) {
     if (!isOcdPersonId(id)) {
       return {
         records: [],
@@ -242,9 +242,10 @@ export function createOpenStatesEvidenceService({
         failedMeasureCount: 0,
       };
     }
+    const requestApiKey = String(openStatesApiKey).trim() || apiKey;
     const results = await Promise.all(safeCollection(measures).map(async (measure) => {
       try {
-        const bill = await fetchBill(measure);
+        const bill = await fetchBill(measure, requestApiKey);
         return {
           success: true,
           records: normalizeRecords({ bill, measure, officialId: id, retrievedAt: now() }),

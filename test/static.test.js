@@ -61,6 +61,18 @@ test('the landing page is an accessible address form', async () => {
   assert.match(body, /id="draft-dialog"/);
 });
 
+test('the header exposes an accessible Open States key settings dialog', async () => {
+  const response = await request('/');
+  const body = await response.text();
+
+  assert.equal(response.status, 200);
+  assert.match(body, /<button[^>]*id="api-settings-button"[^>]*aria-label="Open API settings"/i);
+  assert.match(body, /<dialog[^>]*id="api-settings-dialog"[^>]*aria-labelledby="api-settings-title"/i);
+  assert.match(body, /<label[^>]*for="openstates-api-key"[^>]*>[^<]*Open States API key/i);
+  assert.match(body, /<input[^>]*id="openstates-api-key"[^>]*type="password"/i);
+  assert.match(body, /leave[^<]*blank[^<]*default key/i);
+});
+
 test('allow-listed styles are served as CSS', async () => {
   const response = await request('/styles.css');
 

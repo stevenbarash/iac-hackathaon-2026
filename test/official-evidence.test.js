@@ -56,6 +56,28 @@ test('routes a New York state role only to Open States', async () => {
   assert.equal(result.evidenceStatus.status, 'researched');
 });
 
+test('forwards request context to New York Open States evidence', async () => {
+  let received;
+  const service = createOfficialEvidenceService({
+    openStatesEvidence: {
+      async getEvidenceForOfficial(input, context) {
+        received = { input, context };
+        return sourceResult();
+      },
+    },
+    houseClerkEvidence: { async getEvidenceForOfficial() { return sourceResult(); } },
+  });
+  const context = { openStatesApiKey: 'session-user-key' };
+
+  await service.getEvidenceForOfficial({
+    id: OFFICIAL_ID,
+    jurisdictionId: NY_JURISDICTION,
+    roleClassification: 'upper',
+  }, context);
+
+  assert.deepEqual(received, { input: { id: OFFICIAL_ID }, context });
+});
+
 test('routes a federal lower role with a Bioguide ID only to the House Clerk', async () => {
   const calls = [];
   const service = createOfficialEvidenceService({

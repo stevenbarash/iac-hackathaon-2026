@@ -8,7 +8,7 @@ Live profiles may include literal sponsorship, cosponsorship, and roll-call-vote
 
 Requirements: Node.js 26 or newer. The project has no package dependencies.
 
-Set the Open States key only in the server environment. This zsh sequence avoids putting it directly in the command history:
+The server's configured Open States key is the default, so the browser works without user setup. To supply a different server default through the environment, this zsh sequence avoids putting it directly in command history:
 
 ```sh
 read -s "OPENSTATES_API_KEY?Open States API key: "
@@ -17,9 +17,9 @@ echo
 npm start
 ```
 
-Never put the key in browser code, API requests from clients, source control, URLs, or logs. The server sends it to Open States using the `X-API-KEY` header.
+Never put a key in source control, URLs, JSON bodies, or logs. The browser's settings gear accepts an optional user key, keeps it only in `sessionStorage`, and sends it to this server in the `X-OpenStates-API-Key` request header. The server uses that key for the request or falls back to its configured default, then authenticates to Open States using Open States' `X-API-KEY` header.
 
-The default URL is [http://localhost:3000](http://localhost:3000). Start typing a U.S. street address and choose a result from the keyboard-accessible dropdown, or finish entering it manually. Choose **Use demo location** for fictional records. Demo mode works without an Open States key.
+The default URL is [http://localhost:3000](http://localhost:3000). Start typing a U.S. street address and choose a result from the keyboard-accessible dropdown, or finish entering it manually. Use the settings gear at the top right only when you want to override the default Open States key for the current browser tab. Choose **Use demo location** for fictional records. Demo mode works without transmitting an Open States key.
 
 Run all tests with:
 
@@ -42,6 +42,8 @@ The machine-readable contract is available at [http://localhost:3000/api/openapi
 ### Lookup
 
 `address` is required. Live addresses must include a 5-digit ZIP because the Census endpoint can be slow or ambiguous without one. `mode` is optional and defaults to `live`; the other value is `demo`. `topics` is an optional array of these stable keys: `ihra`, `bds_policy`, `israel_legislation`, `antisemitism`, and `jewish_community`. `locale` is an optional client hint.
+
+Live consumers may send `X-OpenStates-API-Key` on lookup and profile requests. When it is omitted or blank, the server uses its configured default. The header is ignored by demo resolution.
 
 Live request:
 
@@ -85,7 +87,7 @@ All API errors use one envelope:
 
 ## Privacy and integration boundary
 
-While the user types, the server sends the current address text to Photon's public OpenStreetMap-based service to retrieve dropdown suggestions. This service does not persist the query. In live mode, the server sends the final submitted address to the U.S. Census Geocoder. It does not persist the address or echo it in a response. It sends only the resulting latitude and longitude to Open States. In demo mode, the input is matched locally and is not sent upstream.
+While the user types, the server sends the current address text to Photon's public OpenStreetMap-based service to retrieve dropdown suggestions. This service does not persist the query. In live mode, the server sends the final submitted address to the U.S. Census Geocoder. If Census remains unavailable after a retry, the server sends the address to Photon and accepts only a U.S. house result with the submitted ZIP. It does not persist the address or echo it in a response. It sends only the resulting latitude and longitude to Open States. A user-provided API key remains in the browser tab's `sessionStorage`, is transmitted to this server only in a request header, and is never returned in an API response. In demo mode, the input is matched locally and neither the address nor a user key is sent upstream.
 
 The API owns civic evidence and illustrative official profiles only. Client-specific identity, consent, and session state do not belong in this service.
 

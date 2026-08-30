@@ -69,6 +69,32 @@ test('profile IDs dispatch to demo or live sources without storing address state
   assert.deepEqual(liveIds, [LIVE_PROFILE.id]);
 });
 
+test('request context reaches live lookup and profile sources', async () => {
+  const received = {};
+  const resolver = createOfficialResolver({
+    liveService: {
+      async lookup(input, context) {
+        received.lookup = { input, context };
+        return LIVE_LOOKUP;
+      },
+      async getOfficial(id, context) {
+        received.profile = { id, context };
+        return LIVE_PROFILE;
+      },
+    },
+  });
+  const context = { openStatesApiKey: 'session-user-key' };
+
+  await resolver.lookup({ address: '123 Test Street, Brooklyn, NY 11201' }, context);
+  await resolver.getOfficial(LIVE_PROFILE.id, context);
+
+  assert.deepEqual(received.lookup, {
+    input: { address: '123 Test Street, Brooklyn, NY 11201' },
+    context,
+  });
+  assert.deepEqual(received.profile, { id: LIVE_PROFILE.id, context });
+});
+
 test('unsupported lookup modes return INVALID_LOOKUP_MODE', async () => {
   const resolver = createOfficialResolver({
     liveService: { async lookup() {}, async getOfficial() {} },

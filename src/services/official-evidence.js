@@ -138,7 +138,7 @@ export function createOfficialEvidenceService({
     jurisdictionId,
     roleClassification,
     otherIdentifiers = {},
-  } = {}) {
+  } = {}, context = {}) {
     let source;
     let sourceInput;
     let cacheKey;
@@ -164,7 +164,7 @@ export function createOfficialEvidenceService({
 
     let result;
     try {
-      result = normalizeSourceResult(await source?.getEvidenceForOfficial(sourceInput));
+      result = normalizeSourceResult(await source?.getEvidenceForOfficial(sourceInput, context));
     } catch {
       result = sourceFailure();
     }

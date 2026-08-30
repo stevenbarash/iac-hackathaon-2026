@@ -1,6 +1,7 @@
 const app = document.querySelector('#app');
 const statusRegion = document.querySelector('#status');
 const APPEARANCE_KEYS = Object.freeze({ theme: 'kyo.theme.v1', textsize: 'kyo.textsize.v1' });
+const OPENSTATES_KEY_STORAGE = 'kyo.openstatesApiKey.v1';
 
 export const SUPPORTED_TOPICS = Object.freeze([
   'ihra',
@@ -20,6 +21,7 @@ const state = {
   error: null,
   retryAction: null,
   lookupMode: 'live',
+  openStatesApiKey: safeSessionGet(OPENSTATES_KEY_STORAGE, ''),
 };
 
 function element(name, options = {}) {
@@ -60,6 +62,23 @@ function safeStorageSet(key, value) {
   try { localStorage.setItem(key, value); } catch { /* Appearance still works for this page. */ }
 }
 
+function safeSessionGet(key, fallback) {
+  try { return sessionStorage.getItem(key) || fallback; } catch { return fallback; }
+}
+
+function safeSessionSet(key, value) {
+  try { sessionStorage.setItem(key, value); } catch { /* The key remains available in page memory. */ }
+}
+
+function safeSessionRemove(key) {
+  try { sessionStorage.removeItem(key); } catch { /* The key remains available in page memory. */ }
+}
+
+function liveApiHeaders(headers = {}) {
+  if (!state.openStatesApiKey) return headers;
+  return { ...headers, 'x-openstates-api-key': state.openStatesApiKey };
+}
+
 function setAppearance(attribute, value, switchNode) {
   document.documentElement?.setAttribute(`data-${attribute}`, value);
   safeStorageSet(APPEARANCE_KEYS[attribute], value);
@@ -79,6 +98,40 @@ function initAppearance() {
       if (control) setAppearance(attribute, control.dataset.value, switchNode);
     });
   }
+}
+
+function initApiSettings() {
+  const settingsButton = document.querySelector('#api-settings-button');
+  const settingsDialog = document.querySelector('#api-settings-dialog');
+  const settingsForm = document.querySelector('#api-settings-form');
+  const settingsInput = document.querySelector('#openstates-api-key');
+  const closeButton = document.querySelector('#api-settings-close');
+  const clearButton = document.querySelector('#api-settings-clear');
+  if (!settingsButton || !settingsDialog || !settingsForm || !settingsInput || !closeButton || !clearButton) return;
+
+  settingsInput.value = state.openStatesApiKey;
+  settingsButton.addEventListener('click', () => {
+    settingsInput.value = state.openStatesApiKey;
+    settingsDialog.showModal();
+    settingsInput.focus();
+  });
+  closeButton.addEventListener('click', () => settingsDialog.close());
+  clearButton.addEventListener('click', () => {
+    state.openStatesApiKey = '';
+    settingsInput.value = '';
+    safeSessionRemove(OPENSTATES_KEY_STORAGE);
+    settingsDialog.close();
+    announce('Using the default Open States API key.');
+  });
+  settingsForm.addEventListener('submit', (event) => {
+    event.preventDefault();
+    state.openStatesApiKey = settingsInput.value.trim();
+    if (state.openStatesApiKey) safeSessionSet(OPENSTATES_KEY_STORAGE, state.openStatesApiKey);
+    else safeSessionRemove(OPENSTATES_KEY_STORAGE);
+    settingsInput.value = state.openStatesApiKey;
+    settingsDialog.close();
+    announce(state.openStatesApiKey ? 'Custom Open States API key saved for this tab.' : 'Using the default Open States API key.');
+  });
 }
 
 function attachAddressAutocomplete(input, listbox) {
@@ -314,7 +367,7 @@ function renderWelcome() {
   input.value = state.address;
   autocomplete.append(input, listbox);
   attachAddressAutocomplete(input, listbox);
-  const privacy = element('p', { className: 'privacy-copy', text: 'As you type, address text is sent securely to Photon for suggestions. Your final address is sent to the U.S. Census Geocoder and is not stored. Only the resulting coordinates are sent to Open States.' });
+  const privacy = element('p', { className: 'privacy-copy', text: 'As you type, address text is sent securely to Photon for suggestions. Your final address is sent to the U.S. Census Geocoder and may be sent to Photon if Census is unavailable; this service does not store it. Only the resulting coordinates are sent to Open States.' });
   const actions = element('div', { className: 'actions' });
   const submit = element('button', { className: 'button', text: 'Find my officials', type: 'submit' });
   const demo = button('Use demo location', 'button secondary');
@@ -349,11 +402,16 @@ async function lookupAddress() {
   try {
     const lookup = await requestJson('/api/v1/officials/lookup', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: demoMode
+        ? { 'content-type': 'application/json' }
+        : liveApiHeaders({ 'content-type': 'application/json' }),
       body: JSON.stringify({ address: state.address, mode: state.lookupMode }),
     });
     const profileResults = await Promise.allSettled(lookup.officials.map(async (official) => {
-      const profile = await requestJson(`/api/v1/officials/${encodeURIComponent(official.id)}`);
+      const profile = await requestJson(
+        `/api/v1/officials/${encodeURIComponent(official.id)}`,
+        demoMode ? undefined : { headers: liveApiHeaders() },
+      );
       return [official.id, profile];
     }));
     const profiles = profileResults
@@ -425,7 +483,10 @@ async function showProfile(id) {
   }
   setView('loading', 'Loading illustrative profile.');
   try {
-    state.profile = await requestJson(`/api/v1/officials/${encodeURIComponent(id)}`);
+    state.profile = await requestJson(
+      `/api/v1/officials/${encodeURIComponent(id)}`,
+      id.startsWith('ocd-person/') ? { headers: liveApiHeaders() } : undefined,
+    );
     state.profiles.set(id, state.profile);
     state.topic = 'all';
     setView('profile', `Showing the illustrative profile for ${state.profile.name}.`);
@@ -624,4 +685,5 @@ function render() {
 }
 
 initAppearance();
+initApiSettings();
 render();

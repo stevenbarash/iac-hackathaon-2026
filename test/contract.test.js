@@ -74,6 +74,21 @@ test('lookup operation documents every runtime response status including not fou
   assert.deepEqual(responses['404'], { $ref: '#/components/responses/NotFound' });
 });
 
+test('live operations document the optional per-request Open States key header', () => {
+  const expectedHeader = {
+    name: 'X-OpenStates-API-Key',
+    in: 'header',
+    required: false,
+    schema: { type: 'string' },
+    description: 'Optional key for this request. When omitted or blank, the server uses its configured default key.',
+  };
+  const lookupParameters = openApiDocument.paths['/api/v1/officials/lookup'].post.parameters;
+  const profileParameters = openApiDocument.paths['/api/v1/officials/{officialId}'].get.parameters;
+
+  assert.deepEqual(lookupParameters, [expectedHeader]);
+  assert.deepEqual(profileParameters[1], expectedHeader);
+});
+
 test('contact contract accepts either an empty or formatted website and email', () => {
   const contact = schema('Contact');
 

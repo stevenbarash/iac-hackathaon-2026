@@ -113,6 +113,18 @@ test('live lookup geocodes once, authenticates Open States by header, and return
   assert.equal(JSON.stringify(result).includes('123 Test Street'), false);
 });
 
+test('live lookup prefers a request key over the configured default', async () => {
+  const { fetchImpl, requests } = createFetch();
+  const service = createLiveOfficialService({ fetchImpl, apiKey: 'configured-default-key' });
+
+  await service.lookup(
+    { address: '123 Test Street, Brooklyn, NY 11201' },
+    { openStatesApiKey: 'session-user-key' },
+  );
+
+  assert.equal(requests[1].options.headers['X-API-KEY'], 'session-user-key');
+});
+
 test('live profile normalizes identifiers and enriches contact data with injected evidence', async () => {
   const { fetchImpl, requests } = createFetch();
   const evidenceInputs = [];
@@ -166,6 +178,48 @@ test('live profile normalizes identifiers and enriches contact data with injecte
   assert.equal(profile.evidenceStatus.status, 'researched');
   assert.equal(profile.dataMode, 'live_identity');
   assert.equal(profile.sourceAttribution.url, 'https://openstates.org/person/taylor-example/');
+});
+
+test('live profile prefers a request key over the configured default', async () => {
+  const { fetchImpl, requests } = createFetch();
+  const service = createLiveOfficialService({
+    fetchImpl,
+    apiKey: 'configured-default-key',
+    evidenceService: {
+      async getEvidenceForOfficial() {
+        return { issueRecords: [], evidenceStatus: { status: 'not_researched', message: '' } };
+      },
+    },
+  });
+
+  await service.getOfficial(
+    OPEN_STATES_PERSON.id,
+    { openStatesApiKey: 'session-user-key' },
+  );
+
+  assert.equal(requests[0].options.headers['X-API-KEY'], 'session-user-key');
+});
+
+test('live profile forwards the selected key to evidence enrichment', async () => {
+  const { fetchImpl } = createFetch();
+  let evidenceContext;
+  const service = createLiveOfficialService({
+    fetchImpl,
+    apiKey: 'configured-default-key',
+    evidenceService: {
+      async getEvidenceForOfficial(input, context) {
+        evidenceContext = context;
+        return { issueRecords: [], evidenceStatus: { status: 'not_researched', message: '' } };
+      },
+    },
+  });
+
+  await service.getOfficial(
+    OPEN_STATES_PERSON.id,
+    { openStatesApiKey: 'session-user-key' },
+  );
+
+  assert.deepEqual(evidenceContext, { openStatesApiKey: 'session-user-key' });
 });
 
 test('live profile preserves identity and contact when evidence enrichment throws', async () => {
@@ -238,6 +292,47 @@ test('live lookup retries one transient geocoder transport failure', async () =>
   assert.equal(censusAttempts, 2);
   assert.equal(requests.length, 3);
   assert.equal(result.location.city, 'Brooklyn');
+});
+
+test('live lookup falls back to Photon when Census remains unavailable', async () => {
+  const requests = [];
+  const fetchImpl = async (url) => {
+    requests.push(String(url));
+    if (String(url).startsWith('https://geocoding.geo.census.gov/')) {
+      throw new Error('Census timeout');
+    }
+    if (String(url).startsWith('https://photon.komoot.io/')) {
+      return jsonResponse({
+        features: [{
+          geometry: { type: 'Point', coordinates: [-73.9912, 40.6921] },
+          properties: {
+            countrycode: 'US',
+            housenumber: '123',
+            street: 'Test Street',
+            city: 'Brooklyn',
+            state: 'New York',
+            postcode: '11201',
+          },
+        }],
+      });
+    }
+    if (String(url).startsWith('https://v3.openstates.org/')) {
+      return jsonResponse({
+        results: [OPEN_STATES_PERSON],
+        pagination: { per_page: 10, page: 1, max_page: 1, total_items: 1 },
+      });
+    }
+    throw new Error(`Unexpected URL: ${url}`);
+  };
+  const service = createLiveOfficialService({ fetchImpl, apiKey: 'test-key' });
+
+  const result = await service.lookup({ address: '123 Test Street, Brooklyn, NY 11201' });
+
+  assert.equal(requests.filter((url) => url.startsWith('https://geocoding.geo.census.gov/')).length, 2);
+  assert.equal(requests.filter((url) => url.startsWith('https://photon.komoot.io/')).length, 1);
+  assert.equal(result.location.city, 'Brooklyn');
+  assert.equal(result.location.state, 'NY');
+  assert.equal(result.officials[0].id, OPEN_STATES_PERSON.id);
 });
 
 test('zero Census matches returns ADDRESS_NOT_FOUND without calling Open States', async () => {
